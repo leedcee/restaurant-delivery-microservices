@@ -1,0 +1,22 @@
+@startuml
+title Создание и передача заказа
+actor User
+participant "Kitchen API" as API
+database PostgreSQL as DB
+participant "Outbox worker" as Worker
+participant "Demo Restaurant" as Restaurant
+
+User -> API : POST /orders + Idempotency-Key
+API -> DB : advisory lock для ключа
+API -> DB : SELECT inventory FOR UPDATE
+API -> DB : INSERT order/items/history/outbox\nUPDATE inventory
+DB --> API : commit
+API --> User : 201 pending
+Worker -> DB : SELECT ... FOR UPDATE SKIP LOCKED
+Worker -> Restaurant : POST /integration/v1/orders
+Restaurant --> Worker : 202 Accepted
+Worker -> DB : outbox.processed_at = now()
+Restaurant -> API : PATCH accepted → preparing → ready\n→ delivering → delivered
+API -> DB : Проверка каждого перехода + история
+API --> Restaurant : 200 для каждого статуса
+@enduml

@@ -1,0 +1,18 @@
+@startuml
+title C4 Level 1 — System Context
+skinparam rectangle {
+  BackgroundColor #eef5ff
+  BorderColor #24527a
+}
+actor "Пользователь" as user
+actor "Сотрудник заведения" as partner
+rectangle "Web-клиент\n(вне реализации)" as web
+rectangle "Авито.Кухня\nMVP backend" as kitchen
+rectangle "Система заведения" as restaurant
+
+user --> web : Ищет еду и оформляет заказ
+web --> kitchen : REST/JSON
+partner --> restaurant : Управляет меню и заказами
+restaurant --> kitchen : Партнёрский REST API
+kitchen --> restaurant : Передача заказов
+@enduml

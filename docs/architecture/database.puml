@@ -1,0 +1,26 @@
+@startuml
+title ER-диаграмма
+hide methods
+hide stereotypes
+
+entity restaurants
+entity restaurant_integrations
+entity menu_categories
+entity products
+entity product_inventory
+entity orders
+entity order_items
+entity order_status_history
+entity outbox_events
+
+restaurants ||--|| restaurant_integrations
+restaurants ||--o{ menu_categories
+restaurants ||--o{ products
+menu_categories ||--o{ products
+products ||--|| product_inventory
+restaurants ||--o{ orders
+orders ||--|{ order_items
+products ||--o{ order_items
+orders ||--|{ order_status_history
+orders ||--o{ outbox_events
+@enduml

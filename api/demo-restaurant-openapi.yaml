@@ -1,0 +1,122 @@
+openapi: 3.0.3
+info:
+  title: Demo Restaurant Integration API
+  version: 0.1.0
+  description: |
+    API отдельного демонстрационного заведения. Kitchen API доставляет сюда
+    созданные заказы из transactional outbox. Получив заказ, демо-заведение
+    асинхронно подтверждает его через Partner API основного сервиса.
+servers:
+  - url: http://localhost:8081
+    description: Доступ с хоста
+  - url: http://demo-restaurant:8081
+    description: Доступ из Docker Compose
+security: []
+tags:
+  - name: Health
+  - name: Integration
+paths:
+  /health/live:
+    get:
+      summary: Проверить доступность демо-заведения
+      tags: [Health]
+      operationId: demoRestaurantLive
+      responses:
+        '200':
+          description: Сервис запущен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+  /integration/v1/orders:
+    post:
+      tags: [Integration]
+      operationId: receiveOrder
+      summary: Принять заказ от Kitchen API
+      description: |
+        Endpoint вызывается обработчиком outbox. Успешный ответ означает, что
+        заведение сохранило заказ для дальнейшей обработки, но ещё не завершило его.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Order'
+      responses:
+        '202':
+          description: Заказ принят для асинхронной обработки
+        '400':
+          description: Тело запроса не является корректным заказом
+          content:
+            text/plain:
+              schema:
+                type: string
+components:
+  schemas:
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    OrderStatus:
+      type: string
+      enum: [pending, accepted, rejected, preparing, ready, delivering, delivered, cancelled]
+    OrderItem:
+      type: object
+      required: [productId, name, quantity, unitPriceMinor, totalMinor]
+      properties:
+        productId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        unitPriceMinor:
+          type: integer
+          format: int64
+          minimum: 0
+        totalMinor:
+          type: integer
+          format: int64
+          minimum: 0
+    Order:
+      type: object
+      required: [id, userId, restaurantId, items, totalMinor, currency, status, deliveryAddress, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        restaurantId:
+          type: string
+          format: uuid
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/OrderItem'
+        totalMinor:
+          type: integer
+          format: int64
+          minimum: 0
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          example: RUB
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        deliveryAddress:
+          type: string
+        rejectionReason:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time

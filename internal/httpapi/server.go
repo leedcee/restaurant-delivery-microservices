@@ -1,0 +1,271 @@
+// Package httpapi exposes the application's HTTP transport.
+package httpapi
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"avito-kitchen/internal/domain"
+	"avito-kitchen/internal/orders"
+	"avito-kitchen/internal/store"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type server struct {
+	db      *pgxpool.Pool
+	logger  *slog.Logger
+	queries *store.Queries
+	orders  *orders.Service
+}
+
+// New creates the HTTP handler for the main API.
+func New(db *pgxpool.Pool, logger *slog.Logger) http.Handler {
+	server := &server{db: db, logger: logger, queries: store.NewQueries(db), orders: orders.New(db)}
+	router := chi.NewRouter()
+	router.Use(middleware.RequestID)
+	router.Use(middleware.RealIP)
+	router.Use(middleware.Recoverer)
+	router.Use(middleware.Timeout(10 * time.Second))
+	router.Use(cors)
+	router.Get("/health/live", server.live)
+	router.Get("/health/ready", server.ready)
+	router.Get("/api/v1/restaurants", server.listRestaurants)
+	router.Get("/api/v1/restaurants/{restaurantID}/menu", server.getMenu)
+	router.Post("/api/v1/orders/quote", server.quoteOrder)
+	router.Post("/api/v1/orders", server.createOrder)
+	router.Get("/api/v1/orders/{orderID}", server.getOrder)
+	router.Put("/partner/v1/menu", server.replacePartnerMenu)
+	router.Get("/partner/v1/orders", server.listPartnerOrders)
+	router.Patch("/partner/v1/orders/{orderID}/status", server.updatePartnerOrderStatus)
+	return router
+}
+
+func (s *server) live(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *server) ready(w http.ResponseWriter, r *http.Request) {
+	if err := s.db.Ping(r.Context()); err != nil {
+		s.logger.Error("readiness check failed", "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/json")
+	}
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func (s *server) listRestaurants(w http.ResponseWriter, r *http.Request) {
+	items, err := s.queries.ListRestaurants(r.Context())
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *server) getMenu(w http.ResponseWriter, r *http.Request) {
+	restaurantID, err := uuid.Parse(chi.URLParam(r, "restaurantID"))
+	if err != nil {
+		s.fail(w, r, fmt.Errorf("%w: invalid restaurant id", domain.ErrValidation))
+		return
+	}
+	menu, err := s.queries.GetMenu(r.Context(), restaurantID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, menu)
+}
+
+func (s *server) quoteOrder(w http.ResponseWriter, r *http.Request) {
+	if _, err := userID(r); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	var draft domain.OrderDraft
+	if err := decodeJSON(r, &draft); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	quote, err := s.orders.Quote(r.Context(), draft)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, quote)
+}
+
+func (s *server) createOrder(w http.ResponseWriter, r *http.Request) {
+	uid, err := userID(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	var draft domain.OrderDraft
+	if err := decodeJSON(r, &draft); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	order, existing, err := s.orders.Create(r.Context(), uid, r.Header.Get("Idempotency-Key"), draft)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	status := http.StatusCreated
+	if existing {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, order)
+}
+
+func (s *server) getOrder(w http.ResponseWriter, r *http.Request) {
+	uid, err := userID(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	orderID, err := uuid.Parse(chi.URLParam(r, "orderID"))
+	if err != nil {
+		s.fail(w, r, fmt.Errorf("%w: invalid order id", domain.ErrValidation))
+		return
+	}
+	order, err := s.orders.Get(r.Context(), orderID, uid)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
+}
+
+func (s *server) replacePartnerMenu(w http.ResponseWriter, r *http.Request) {
+	restaurantID, err := s.queries.AuthenticatePartner(r.Context(), r.Header.Get("X-API-Key"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	var menu domain.PartnerMenu
+	if err := decodeJSON(r, &menu); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if err := s.queries.ReplaceMenu(r.Context(), restaurantID, menu); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) updatePartnerOrderStatus(w http.ResponseWriter, r *http.Request) {
+	restaurantID, err := s.queries.AuthenticatePartner(r.Context(), r.Header.Get("X-API-Key"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	orderID, err := uuid.Parse(chi.URLParam(r, "orderID"))
+	if err != nil {
+		s.fail(w, r, fmt.Errorf("%w: invalid order id", domain.ErrValidation))
+		return
+	}
+	var input struct {
+		Status domain.OrderStatus `json:"status"`
+		Reason string             `json:"reason"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	order, err := s.orders.UpdatePartnerStatus(r.Context(), orderID, restaurantID, input.Status, input.Reason)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
+}
+
+func (s *server) listPartnerOrders(w http.ResponseWriter, r *http.Request) {
+	restaurantID, err := s.queries.AuthenticatePartner(r.Context(), r.Header.Get("X-API-Key"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	items, err := s.orders.ListForRestaurant(r.Context(), restaurantID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func userID(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(r.Header.Get("X-User-ID"))
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("%w: valid X-User-ID is required", domain.ErrValidation)
+	}
+	return id, nil
+}
+
+func decodeJSON(r *http.Request, target any) error {
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("%w: invalid JSON: %w", domain.ErrValidation, err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("%w: request must contain one JSON object", domain.ErrValidation)
+	}
+	return nil
+}
+
+func (s *server) fail(w http.ResponseWriter, r *http.Request, err error) {
+	status := http.StatusInternalServerError
+	title := "Internal server error"
+	typeName := "about:blank"
+	switch {
+	case errors.Is(err, domain.ErrValidation):
+		status, title, typeName = http.StatusUnprocessableEntity, "Validation failed", "/problems/validation"
+	case errors.Is(err, domain.ErrUnauthorized):
+		status, title, typeName = http.StatusUnauthorized, "Unauthorized", "/problems/unauthorized"
+	case errors.Is(err, domain.ErrNotFound):
+		status, title, typeName = http.StatusNotFound, "Not found", "/problems/not-found"
+	case errors.Is(err, domain.ErrConflict):
+		status, title, typeName = http.StatusConflict, "Conflict", "/problems/conflict"
+	default:
+		s.logger.Error("request failed", "error", err, "requestId", middleware.GetReqID(r.Context()))
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	writeJSON(w, status, map[string]any{
+		"type": typeName, "title": title, "status": status,
+		"detail": err.Error(), "requestId": middleware.GetReqID(r.Context()),
+	})
+}
+
+func cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Request-ID", middleware.GetReqID(r.Context()))
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-User-ID, X-API-Key, Idempotency-Key")
+		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

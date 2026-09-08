@@ -1,0 +1,485 @@
+openapi: 3.0.3
+info:
+  title: Avito Kitchen API
+  version: 0.1.0
+  description: MVP API for customers and partner restaurants.
+servers:
+  - url: http://localhost:8080
+security: []
+tags:
+  - name: Customer
+  - name: Partner
+  - name: Health
+paths:
+  /health/live:
+    get:
+      summary: Check process liveness
+      tags: [Health]
+      operationId: live
+      responses:
+        '200':
+          description: Process is alive
+  /health/ready:
+    get:
+      summary: Check service readiness
+      tags: [Health]
+      operationId: ready
+      responses:
+        '200':
+          description: Service is ready
+        '503':
+          description: A dependency is unavailable
+  /api/v1/restaurants:
+    get:
+      summary: List active restaurants
+      tags: [Customer]
+      operationId: listRestaurants
+      responses:
+        '200':
+          description: Active restaurants
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Restaurant'
+  /api/v1/restaurants/{restaurantId}/menu:
+    get:
+      summary: Get restaurant menu and availability
+      tags: [Customer]
+      operationId: getRestaurantMenu
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+      responses:
+        '200':
+          description: Current menu and availability
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Menu'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/orders/quote:
+    post:
+      summary: Calculate and validate an order draft
+      tags: [Customer]
+      operationId: quoteOrder
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderDraft'
+      responses:
+        '200':
+          description: Server-calculated cart
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderQuote'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/orders:
+    post:
+      summary: Create an order idempotently
+      tags: [Customer]
+      operationId: createOrder
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/OrderDraft'
+                - type: object
+                  required: [deliveryAddress]
+                  properties:
+                    deliveryAddress:
+                      type: string
+                      minLength: 1
+                      maxLength: 500
+      responses:
+        '201':
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '200':
+          description: Existing order returned for the same idempotency key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/orders/{orderId}:
+    get:
+      summary: Get the current order state
+      tags: [Customer]
+      operationId: getOrder
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Order state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /partner/v1/menu:
+    put:
+      summary: Replace the authenticated restaurant menu
+      tags: [Partner]
+      security:
+        - partnerApiKey: []
+      operationId: replacePartnerMenu
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PartnerMenu'
+      responses:
+        '204':
+          description: Menu accepted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /partner/v1/orders:
+    get:
+      summary: List orders for the authenticated restaurant
+      tags: [Partner]
+      security:
+        - partnerApiKey: []
+      operationId: listPartnerOrders
+      responses:
+        '200':
+          description: Restaurant orders
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /partner/v1/orders/{orderId}/status:
+    patch:
+      summary: Update a restaurant order status
+      tags: [Partner]
+      security:
+        - partnerApiKey: []
+      operationId: updatePartnerOrderStatus
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  $ref: '#/components/schemas/OrderStatus'
+                reason:
+                  type: string
+                  maxLength: 500
+      responses:
+        '200':
+          description: Updated order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+components:
+  securitySchemes:
+    partnerApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  parameters:
+    RestaurantId:
+      name: restaurantId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserId:
+      name: X-User-ID
+      in: header
+      required: true
+      description: Trusted user identifier supplied by the upstream platform in the MVP.
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  responses:
+    Unauthorized:
+      description: Invalid partner API key
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: Resource not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: Request conflicts with current resource state
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ValidationError:
+      description: Invalid request
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    Restaurant:
+      type: object
+      required: [id, name, description, isOpen]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        isOpen:
+          type: boolean
+    Product:
+      type: object
+      required: [id, name, description, priceMinor, currency, available, quantity]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        priceMinor:
+          type: integer
+          format: int64
+          minimum: 0
+        currency:
+          type: string
+          example: RUB
+        available:
+          type: boolean
+        quantity:
+          type: integer
+          minimum: 0
+    MenuCategory:
+      type: object
+      required: [id, name, products]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        products:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+    Menu:
+      type: object
+      required: [restaurant, categories]
+      properties:
+        restaurant:
+          $ref: '#/components/schemas/Restaurant'
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/MenuCategory'
+    DraftItem:
+      type: object
+      required: [productId, quantity]
+      properties:
+        productId:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 100
+    OrderDraft:
+      type: object
+      required: [restaurantId, items]
+      properties:
+        restaurantId:
+          type: string
+          format: uuid
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/DraftItem'
+    QuoteItem:
+      type: object
+      required: [productId, name, quantity, unitPriceMinor, totalMinor]
+      properties:
+        productId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        quantity:
+          type: integer
+        unitPriceMinor:
+          type: integer
+          format: int64
+        totalMinor:
+          type: integer
+          format: int64
+    OrderQuote:
+      type: object
+      required: [restaurantId, items, totalMinor, currency]
+      properties:
+        restaurantId:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuoteItem'
+        totalMinor:
+          type: integer
+          format: int64
+        currency:
+          type: string
+          example: RUB
+    OrderStatus:
+      type: string
+      enum: [pending, accepted, rejected, preparing, ready, delivering, delivered, cancelled]
+    Order:
+      allOf:
+        - $ref: '#/components/schemas/OrderQuote'
+        - type: object
+          required: [id, userId, status, deliveryAddress, createdAt]
+          properties:
+            id:
+              type: string
+              format: uuid
+            userId:
+              type: string
+              format: uuid
+            status:
+              $ref: '#/components/schemas/OrderStatus'
+            deliveryAddress:
+              type: string
+            rejectionReason:
+              type: string
+              nullable: true
+            createdAt:
+              type: string
+              format: date-time
+    PartnerMenu:
+      type: object
+      required: [categories]
+      properties:
+        categories:
+          type: array
+          items:
+            type: object
+            required: [externalId, name, products]
+            properties:
+              externalId:
+                type: string
+                maxLength: 100
+              name:
+                type: string
+                maxLength: 200
+              position:
+                type: integer
+              products:
+                type: array
+                items:
+                  type: object
+                  required: [externalId, name, priceMinor, quantity, available]
+                  properties:
+                    externalId:
+                      type: string
+                      maxLength: 100
+                    name:
+                      type: string
+                      maxLength: 200
+                    description:
+                      type: string
+                      maxLength: 1000
+                    priceMinor:
+                      type: integer
+                      format: int64
+                      minimum: 0
+                    quantity:
+                      type: integer
+                      minimum: 0
+                    available:
+                      type: boolean
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        requestId:
+          type: string

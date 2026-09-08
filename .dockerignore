@@ -1,0 +1,9 @@
+.git
+.idea
+.vscode
+.env
+bin
+coverage.out
+work
+outputs
+*.log
