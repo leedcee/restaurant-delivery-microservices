@@ -28,6 +28,25 @@ curl http://localhost:8080/api/v1/restaurants
 находятся в `api/openapi.yaml` (Kitchen API) и
 `api/demo-restaurant-openapi.yaml` (входящий API заведения).
 
+## Что посмотреть проверяющему
+
+После `docker compose up --build -d` можно открыть:
+
+- [готовность Kitchen API](http://localhost:8080/health/ready) — проверка API и подключения к PostgreSQL;
+- [список заведений](http://localhost:8080/api/v1/restaurants) — пользовательский каталог;
+- [меню демо-ресторана](http://localhost:8080/api/v1/restaurants/11111111-1111-1111-1111-111111111111/menu) — категории, цены и актуальные остатки;
+- [готовность Demo Restaurant](http://localhost:8081/health/live) — отдельный сервис заведения;
+- [OpenAPI Kitchen API](api/openapi.yaml) — пользовательские и закрытые партнёрские endpoints;
+- [OpenAPI Demo Restaurant](api/demo-restaurant-openapi.yaml) — входящий endpoint для доставки заказа;
+- [CJM пользователя](docs/rendered/customer.svg) и [CJM заведения](docs/rendered/restaurant.svg);
+- [C4 Level 2](docs/rendered/c4-container.svg) и [sequence создания заказа](docs/rendered/order-sequence.svg);
+- [ER-диаграмму](docs/rendered/database.svg) и [миграции PostgreSQL](migrations/);
+- [основной E2E-сценарий](tests/e2e/order_test.go) и [негативные сценарии](tests/e2e/negative_test.go).
+
+Для проверки полного сценария оформления заказа выполните
+`go test -count=1 -tags=e2e ./tests/e2e`: тест публикует меню, создаёт заказ,
+проверяет идемпотентность, доставку через outbox и достижение статуса `delivered`.
+
 ## Основной сценарий
 
 1. Клиент получает список заведений и меню.
