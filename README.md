@@ -95,11 +95,6 @@ curl -X POST http://localhost:8080/api/v1/orders \
 - [ER-диаграмма](docs/rendered/database.svg)
 - [Sequence создания заказа](docs/rendered/order-sequence.svg)
 
-Отрендеренные SVG и PNG находятся в `docs/rendered`. Для повторной генерации
-запустите `powershell -ExecutionPolicy Bypass -File scripts/render-diagrams.ps1`.
-Скрипт использует закреплённую версию PlantUML в Docker. На системах с `make`
-доступна короткая команда `make diagrams`.
-
 ## Модель данных
 
 - `restaurants` и `restaurant_integrations` — заведение и параметры интеграции;
