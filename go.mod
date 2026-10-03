@@ -1,4 +1,4 @@
-module avito-kitchen
+module restaurant-delivery-system
 
 go 1.26
 

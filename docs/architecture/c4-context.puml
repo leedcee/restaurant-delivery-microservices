@@ -7,12 +7,12 @@ skinparam rectangle {
 actor "Пользователь" as user
 actor "Сотрудник заведения" as partner
 rectangle "Web-клиент\n(вне реализации)" as web
-rectangle "Авито.Кухня\nMVP backend" as kitchen
+rectangle "Платформа заказа и доставки еды\nBackend-прототип ВКР" as platform
 rectangle "Система заведения" as restaurant
 
 user --> web : Ищет еду и оформляет заказ
-web --> kitchen : REST/JSON
+web --> platform : REST/JSON
 partner --> restaurant : Управляет меню и заказами
-restaurant --> kitchen : Партнёрский REST API
-kitchen --> restaurant : Передача заказов
+restaurant --> platform : Партнёрский REST API
+platform --> restaurant : Передача заказов
 @enduml

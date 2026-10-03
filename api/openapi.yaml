@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
-  title: Avito Kitchen API
+  title: Restaurant Delivery Platform API
   version: 0.1.0
-  description: MVP API for customers and partner restaurants.
+  description: API for customers and partner restaurants in the graduation project prototype.
 servers:
   - url: http://localhost:8080
 security: []

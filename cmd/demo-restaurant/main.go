@@ -15,8 +15,8 @@ import (
 	"syscall"
 	"time"
 
-	"avito-kitchen/internal/config"
-	"avito-kitchen/internal/domain"
+	"restaurant-delivery-system/internal/config"
+	"restaurant-delivery-system/internal/domain"
 )
 
 type restaurant struct {
@@ -108,7 +108,7 @@ func (a *restaurant) sendStatus(orderID string, status domain.OrderStatus) error
 	if err != nil {
 		return fmt.Errorf("marshal callback: %w", err)
 	}
-	url := fmt.Sprintf("%s/partner/v1/orders/%s/status", a.config.KitchenBaseURL, orderID)
+	url := fmt.Sprintf("%s/partner/v1/orders/%s/status", a.config.PlatformBaseURL, orderID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create callback: %w", err)
@@ -156,7 +156,7 @@ func (a *restaurant) publishMenuUntilReady(ctx context.Context) {
 }
 
 func (a *restaurant) publishMenu(ctx context.Context, payload []byte) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, a.config.KitchenBaseURL+"/partner/v1/menu", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, a.config.PlatformBaseURL+"/partner/v1/menu", bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}

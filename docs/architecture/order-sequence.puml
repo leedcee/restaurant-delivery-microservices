@@ -1,7 +1,7 @@
 @startuml
 title Создание и передача заказа
 actor User
-participant "Kitchen API" as API
+participant "Platform API" as API
 database PostgreSQL as DB
 participant "Outbox worker" as Worker
 participant "Demo Restaurant" as Restaurant

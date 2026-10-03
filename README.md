@@ -1,161 +1,126 @@
-# Авито.Кухня — Backend MVP
+<h1 align="center">Restaurant Delivery Platform</h1>
 
-MVP API для просмотра меню, оформления заказов и интеграции с заведениями.
-Репозиторий содержит основной сервис и отдельный сервис демонстрационного кафе.
+<p align="center">
+  Backend-прототип для ВКР<br>
+  <strong>«Процесс автоматизации организации заказов и доставки еды из ресторанов с использованием микросервисной архитектуры»</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go 1.26">
+  <img src="https://img.shields.io/badge/PostgreSQL-17-4169E1?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 17">
+  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker Compose">
+  <img src="https://img.shields.io/badge/OpenAPI-3.0-6BA539?style=flat-square&logo=openapiinitiative&logoColor=white" alt="OpenAPI 3.0">
+</p>
+
+## О проекте
+
+Система автоматизирует путь ресторанного заказа: публикацию меню, проверку цен и остатков, оформление заказа, передачу заведению и отслеживание статуса до доставки.
+
+Текущая версия реализует основной API как модульный Go-сервис и отдельный сервис демонстрационного ресторана. Границы модулей, контракт интеграции и transactional outbox позволяют последовательно выделять компоненты в самостоятельные микросервисы без изменения пользовательского API.
+
+## Что реализовано
+
+- каталог ресторанов и актуальное меню;
+- расчёт заказа по серверным ценам и остаткам;
+- идемпотентное создание заказа;
+- жизненный цикл `pending → accepted → preparing → ready → delivering → delivered`;
+- партнёрский API для меню и статусов;
+- надёжная передача заказов через transactional outbox;
+- повтор доставки при временной недоступности ресторана;
+- аудит переходов статуса;
+- OpenAPI-контракты, C4, ER, sequence-диаграмма и CJM;
+- unit- и E2E-тесты, включая конкурентное списание последнего товара.
+
+## Архитектура
+
+![Контейнерная диаграмма](docs/rendered/c4-container.svg)
+
+Основной сервис разделён на HTTP-транспорт, бизнес-логику заказов, хранилище и интеграционный worker. Создание заказа, фиксация позиций, изменение остатков и запись outbox-события выполняются в одной транзакции PostgreSQL.
+
+```text
+Web-клиент ──REST──> Platform API ──> PostgreSQL
+                         │                 │
+                         └─ Outbox worker ─┘
+                                  │
+                                  ▼
+                          Restaurant API
+```
+
+Дополнительные схемы:
+
+- [контекст системы](docs/rendered/c4-context.svg);
+- [последовательность создания заказа](docs/rendered/order-sequence.svg);
+- [модель данных](docs/rendered/database.svg);
+- [CJM пользователя](docs/rendered/customer.svg);
+- [CJM ресторана](docs/rendered/restaurant.svg).
 
 ## Быстрый запуск
 
-Требования: Go 1.26+, Docker Desktop с Docker Compose.
+Понадобятся Docker и Docker Compose.
 
 ```bash
+git clone https://github.com/leedcee/restaurant-delivery-microservices.git
+cd restaurant-delivery-microservices
 docker compose up --build -d
 ```
 
-После запуска:
+После запуска доступны:
 
-- Kitchen API: `http://localhost:8080`
-- Demo Restaurant: `http://localhost:8081`
-- PostgreSQL: `localhost:5432`
+| Компонент | Адрес |
+|---|---|
+| Platform API | `http://localhost:8080` |
+| Demo Restaurant | `http://localhost:8081` |
+| PostgreSQL | `localhost:5432` |
 
-Проверка:
+Проверка готовности и получение каталога:
 
 ```bash
 curl http://localhost:8080/health/ready
 curl http://localhost:8080/api/v1/restaurants
 ```
 
-Демонстрационное заведение при старте самостоятельно публикует меню. Спецификации
-находятся в `api/openapi.yaml` (Kitchen API) и
-`api/demo-restaurant-openapi.yaml` (входящий API заведения).
-
-## Что посмотреть проверяющему
-
-После `docker compose up --build -d` можно открыть:
-
-- [готовность Kitchen API](http://localhost:8080/health/ready) — проверка API и подключения к PostgreSQL;
-- [список заведений](http://localhost:8080/api/v1/restaurants) — пользовательский каталог;
-- [меню демо-ресторана](http://localhost:8080/api/v1/restaurants/11111111-1111-1111-1111-111111111111/menu) — категории, цены и актуальные остатки;
-- [готовность Demo Restaurant](http://localhost:8081/health/live) — отдельный сервис заведения;
-- [OpenAPI Kitchen API](api/openapi.yaml) — пользовательские и закрытые партнёрские endpoints;
-- [OpenAPI Demo Restaurant](api/demo-restaurant-openapi.yaml) — входящий endpoint для доставки заказа;
-- [CJM пользователя](docs/rendered/customer.svg) и [CJM заведения](docs/rendered/restaurant.svg);
-- [C4 Level 2](docs/rendered/c4-container.svg) и [sequence создания заказа](docs/rendered/order-sequence.svg);
-- [ER-диаграмму](docs/rendered/database.svg) и [миграции PostgreSQL](migrations/);
-- [основной E2E-сценарий](tests/e2e/order_test.go) и [негативные сценарии](tests/e2e/negative_test.go).
-
-Для проверки полного сценария оформления заказа выполните
-`go test -count=1 -tags=e2e ./tests/e2e`: тест публикует меню, создаёт заказ,
-проверяет идемпотентность, доставку через outbox и достижение статуса `delivered`.
+Демонстрационный ресторан автоматически публикует меню после запуска.
 
 ## Основной сценарий
 
-1. Клиент получает список заведений и меню.
-2. `POST /api/v1/orders/quote` проверяет актуальные цены и остатки.
-3. `POST /api/v1/orders` с `X-User-ID` и `Idempotency-Key` создаёт заказ.
-4. В одной транзакции сохраняются заказ, снимки позиций, история, изменение
-   остатков и outbox-событие.
-5. Worker доставляет заказ отдельному сервису заведения.
-6. Заведение проводит заказ через статусы `accepted`, `preparing`, `ready`,
-   `delivering` и `delivered` через партнёрский API.
-7. Клиент получает актуальный статус через `GET /api/v1/orders/{id}`.
-
-## CJM
-
-### Пользователь
-
-![CJM пользователя](docs/rendered/customer.svg)
-
-Исходник: [`docs/cjm/customer.puml`](docs/cjm/customer.puml).
-
-### Заведение
-
-![CJM заведения](docs/rendered/restaurant.svg)
-
-Исходник: [`docs/cjm/restaurant.puml`](docs/cjm/restaurant.puml).
-
-## Пример создания заказа
-
-Сначала получите UUID товара из меню:
-
-```bash
-curl http://localhost:8080/api/v1/restaurants/11111111-1111-1111-1111-111111111111/menu
-```
-
-Затем подставьте его в запрос:
-
-```bash
-curl -X POST http://localhost:8080/api/v1/orders \
-  -H "Content-Type: application/json" \
-  -H "X-User-ID: 22222222-2222-2222-2222-222222222222" \
-  -H "Idempotency-Key: example-1" \
-  -d '{"restaurantId":"11111111-1111-1111-1111-111111111111","deliveryAddress":"Самара","items":[{"productId":"PRODUCT_UUID","quantity":1}]}'
-```
-
-## Архитектура
-
-Основное приложение реализовано как модульный монолит. Каталог, заказы,
-остатки, HTTP-транспорт и интеграции разделены пакетами. Demo Restaurant —
-самостоятельный сервис и контейнер.
-
-Такой вариант сохраняет простые локальные транзакции для критического сценария
-создания заказа, но уже демонстрирует межсервисную доставку, retry и
-идемпотентность. При росте нагрузки модули каталога и заказов можно выделить в
-сервисы, заменив локальные транзакции событиями и Saga.
-
-### C4 Level 2 — контейнеры
-
-![C4 Level 2](docs/rendered/c4-container.svg)
-
-Исходник: [`docs/architecture/c4-container.puml`](docs/architecture/c4-container.puml).
-
-Дополнительные архитектурные диаграммы:
-
-- [C4 Level 1 — контекст](docs/rendered/c4-context.svg)
-- [ER-диаграмма](docs/rendered/database.svg)
-- [Sequence создания заказа](docs/rendered/order-sequence.svg)
-
-## Модель данных
-
-- `restaurants` и `restaurant_integrations` — заведение и параметры интеграции;
-- `menu_categories`, `products`, `product_inventory` — меню и остатки;
-- `orders`, `order_items` — заказ и неизменяемые снимки его позиций;
-- `order_status_history` — аудит переходов статуса;
-- `outbox_events` — надёжная передача заказа заведению.
-
-Деньги хранятся в копейках как `bigint`. UUID используются как внутренние
-идентификаторы. Внешние идентификаторы заведений отделены от внутренних.
-
-![Схема базы данных](docs/rendered/database.svg)
-
-Исходник: [`docs/architecture/database.puml`](docs/architecture/database.puml).
+1. Клиент запрашивает список ресторанов и меню.
+2. `POST /api/v1/orders/quote` проверяет цены и доступные остатки.
+3. `POST /api/v1/orders` создаёт заказ с `X-User-ID` и `Idempotency-Key`.
+4. Заказ, снимки позиций, история, остатки и outbox-событие сохраняются атомарно.
+5. Worker передаёт заказ отдельному сервису ресторана.
+6. Ресторан подтверждает заказ и последовательно обновляет его статус.
+7. Клиент получает состояние через `GET /api/v1/orders/{id}`.
 
 ## Надёжность
 
-- `Idempotency-Key` защищён уникальным ограничением и advisory lock;
-- остатки читаются через `SELECT ... FOR UPDATE`;
-- итоговая сумма всегда рассчитывается сервером;
-- заказ и outbox-событие создаются атомарно;
-- worker использует `FOR UPDATE SKIP LOCKED` и повторяет неуспешные доставки;
-- переходы статусов проверяются конечным автоматом;
-- API-ключ партнёра хранится в виде SHA-256 хеша.
+- уникальное ограничение и advisory lock для `Idempotency-Key`;
+- `SELECT ... FOR UPDATE` для защиты остатков от overselling;
+- серверный расчёт итоговой стоимости;
+- атомарная запись заказа и outbox-события;
+- `FOR UPDATE SKIP LOCKED` и retry интеграционного worker;
+- конечный автомат допустимых переходов статуса;
+- хранение API-ключа партнёра в виде SHA-256-хеша.
 
-## Команды разработки
+## API и документация
+
+- [OpenAPI основного сервиса](api/openapi.yaml);
+- [OpenAPI демонстрационного ресторана](api/demo-restaurant-openapi.yaml);
+- [миграции PostgreSQL](migrations/);
+- [исходники архитектурных диаграмм](docs/architecture/);
+- [исходники CJM](docs/cjm/).
+
+## Разработка и тесты
 
 ```bash
 go test ./...
 go test -count=1 -tags=e2e ./tests/e2e
 golangci-lint run ./...
-powershell -ExecutionPolicy Bypass -File scripts/render-diagrams.ps1
-docker compose up --build -d
 docker compose logs -f
 docker compose down
 ```
 
-## Упрощения MVP
+E2E-тест проверяет полный путь заказа, идемпотентность, обработку негативных сценариев, retry outbox и защиту от конкурентного списания последней позиции.
 
-- пользовательская аутентификация находится за пределами задания;
-- `X-User-ID` считается доверенным заголовком внешнего gateway;
-- оплаты, курьеров и геокодирования нет;
-- worker выполняется в процессе основного API;
-- исходящая связь с демонстрационным заведением находится во внутренней Docker-сети;
-- полноценное управление секретами заменено переменными окружения.
+## Границы текущей версии
+
+В прототип пока не входят пользовательская аутентификация, реальные платежи, геокодирование и отдельное приложение курьера. `X-User-ID` считается доверенным заголовком внешнего API Gateway, а сервис ресторана используется как демонстрационный интеграционный контур.

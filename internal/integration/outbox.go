@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"time"
 
-	"avito-kitchen/internal/domain"
+	"restaurant-delivery-system/internal/domain"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"

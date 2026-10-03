@@ -1,4 +1,4 @@
-// Command kitchen-api runs the Avito Kitchen customer and partner API.
+// Command platform-api runs the restaurant delivery customer and partner API.
 package main
 
 import (
@@ -11,10 +11,10 @@ import (
 	"syscall"
 	"time"
 
-	"avito-kitchen/internal/config"
-	"avito-kitchen/internal/httpapi"
-	"avito-kitchen/internal/integration"
-	"avito-kitchen/internal/store"
+	"restaurant-delivery-system/internal/config"
+	"restaurant-delivery-system/internal/httpapi"
+	"restaurant-delivery-system/internal/integration"
+	"restaurant-delivery-system/internal/store"
 )
 
 func main() {
@@ -26,7 +26,7 @@ func main() {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	cfg, err := config.KitchenFromEnv()
+	cfg, err := config.PlatformFromEnv()
 	if err != nil {
 		logger.Error("invalid configuration", "error", err)
 		os.Exit(1)
@@ -50,7 +50,7 @@ func main() {
 	go integration.NewWorker(db, logger).Run(ctx)
 
 	go func() {
-		logger.Info("kitchen API started", "address", cfg.HTTPAddr)
+		logger.Info("platform API started", "address", cfg.HTTPAddr)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("HTTP server failed", "error", err)
 			stop()

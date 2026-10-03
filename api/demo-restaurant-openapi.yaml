@@ -3,7 +3,7 @@ info:
   title: Demo Restaurant Integration API
   version: 0.1.0
   description: |
-    API отдельного демонстрационного заведения. Kitchen API доставляет сюда
+    API отдельного демонстрационного заведения. Platform API доставляет сюда
     созданные заказы из transactional outbox. Получив заказ, демо-заведение
     асинхронно подтверждает его через Partner API основного сервиса.
 servers:
@@ -32,7 +32,7 @@ paths:
     post:
       tags: [Integration]
       operationId: receiveOrder
-      summary: Принять заказ от Kitchen API
+      summary: Принять заказ от Platform API
       description: |
         Endpoint вызывается обработчиком outbox. Успешный ответ означает, что
         заведение сохранило заказ для дальнейшей обработки, но ещё не завершило его.

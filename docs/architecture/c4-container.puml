@@ -4,8 +4,8 @@ skinparam componentStyle rectangle
 skinparam shadowing false
 
 actor "Web-клиент" as web
-component "Kitchen API\nGo, REST" as api
-component "Outbox worker\nв процессе Kitchen API" as worker
+component "Platform API\nGo, REST" as api
+component "Outbox worker\nв процессе Platform API" as worker
 database "PostgreSQL\nкаталог, остатки, заказы, outbox" as db
 component "Demo Restaurant\nGo, REST" as restaurant
 

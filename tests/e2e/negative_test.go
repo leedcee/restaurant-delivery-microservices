@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"avito-kitchen/internal/domain"
+	"restaurant-delivery-system/internal/domain"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -130,7 +130,7 @@ func openTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	databaseURL := os.Getenv("E2E_DATABASE_URL")
 	if databaseURL == "" {
-		databaseURL = "postgres://kitchen:kitchen@localhost:5432/kitchen?sslmode=disable"
+		databaseURL = "postgres://restaurant:restaurant@localhost:5432/restaurant_delivery?sslmode=disable"
 	}
 	db, err := pgxpool.New(t.Context(), databaseURL)
 	if err != nil {

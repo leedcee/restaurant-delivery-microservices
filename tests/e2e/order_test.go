@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"avito-kitchen/internal/domain"
+	"restaurant-delivery-system/internal/domain"
 
 	"github.com/google/uuid"
 )

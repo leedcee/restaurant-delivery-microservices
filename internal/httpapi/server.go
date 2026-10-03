@@ -10,9 +10,9 @@ import (
 	"net/http"
 	"time"
 
-	"avito-kitchen/internal/domain"
-	"avito-kitchen/internal/orders"
-	"avito-kitchen/internal/store"
+	"restaurant-delivery-system/internal/domain"
+	"restaurant-delivery-system/internal/orders"
+	"restaurant-delivery-system/internal/store"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"

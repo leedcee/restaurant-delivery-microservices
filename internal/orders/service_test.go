@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"avito-kitchen/internal/domain"
+	"restaurant-delivery-system/internal/domain"
 
 	"github.com/google/uuid"
 )
