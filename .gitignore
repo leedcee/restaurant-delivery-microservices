@@ -5,4 +5,10 @@ bin/
 coverage.out
 *.log
 work/
+frontend/node_modules/
+frontend/dist/
+frontend/.npm-cache/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
 

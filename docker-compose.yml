@@ -49,6 +49,15 @@ services:
       timeout: 3s
       retries: 10
 
+  web:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      platform-api:
+        condition: service_healthy
+
   demo-restaurant:
     build:
       context: .

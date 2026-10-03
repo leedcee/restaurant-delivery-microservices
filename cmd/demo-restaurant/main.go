@@ -130,12 +130,13 @@ func (a *restaurant) sendStatus(orderID string, status domain.OrderStatus) error
 
 func (a *restaurant) publishMenuUntilReady(ctx context.Context) {
 	menu := domain.PartnerMenu{Categories: []domain.PartnerCategory{
-		{ExternalID: "pizza", Name: "Пицца", Position: 1, Products: []domain.PartnerProduct{
-			{ExternalID: "margherita", Name: "Маргарита", Description: "Томаты, моцарелла, базилик", PriceMinor: 59000, Quantity: 20, Available: true},
-			{ExternalID: "pepperoni", Name: "Пепперони", Description: "Пепперони и моцарелла", PriceMinor: 69000, Quantity: 15, Available: true},
+		{ExternalID: "popular", Name: "Популярное", Position: 1, Products: []domain.PartnerProduct{
+			{ExternalID: "chicken-pasta", Name: "Паста с курицей", Description: "Свежие продукты и фирменный соус", PriceMinor: 49000, Quantity: 20, Available: true},
+			{ExternalID: "braised-beef", Name: "Томлёная говядина", Description: "Свежие продукты и фирменный соус", PriceMinor: 62000, Quantity: 15, Available: true},
+			{ExternalID: "syrniki", Name: "Сырники", Description: "Свежие продукты и фирменный соус", PriceMinor: 35000, Quantity: 30, Available: true},
 		}},
 		{ExternalID: "drinks", Name: "Напитки", Position: 2, Products: []domain.PartnerProduct{
-			{ExternalID: "mors", Name: "Морс", Description: "Ягодный морс, 0.5 л", PriceMinor: 19000, Quantity: 30, Available: true},
+			{ExternalID: "mors", Name: "Домашний морс", Description: "Ягодный морс, 0.5 л", PriceMinor: 19000, Quantity: 30, Available: true},
 		}},
 	}}
 	payload, err := json.Marshal(menu)

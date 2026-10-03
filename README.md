@@ -2,7 +2,7 @@
 
 <p align="center">
   Backend-платформа для автоматизации заказов и доставки еды из ресторанов<br>
-  <strong>Go · PostgreSQL · Transactional Outbox · Docker</strong>
+  <strong>Go · React · TypeScript · PostgreSQL · Transactional Outbox · Docker</strong>
 </p>
 
 <p align="center">
@@ -28,6 +28,7 @@
 - надёжная передача заказов через transactional outbox;
 - повтор доставки при временной недоступности ресторана;
 - аудит переходов статуса;
+- адаптивный web-клиент: каталог, меню, корзина, оформление и отслеживание;
 - OpenAPI-контракты, C4, ER, sequence-диаграмма и CJM;
 - unit- и E2E-тесты, включая конкурентное списание последнего товара.
 
@@ -68,6 +69,7 @@ docker compose up --build -d
 
 | Компонент | Адрес |
 |---|---|
+| Web-клиент | `http://localhost:5173` |
 | Platform API | `http://localhost:8080` |
 | Demo Restaurant | `http://localhost:8081` |
 | PostgreSQL | `localhost:5432` |
@@ -80,6 +82,16 @@ curl http://localhost:8080/api/v1/restaurants
 ```
 
 Демонстрационный ресторан автоматически публикует меню после запуска.
+
+Для отдельной frontend-разработки:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Vite проксирует `/api` на `http://localhost:8080`. Если backend временно недоступен, интерфейс остаётся доступен с демонстрационными данными.
 
 ## Основной сценарий
 
@@ -108,6 +120,7 @@ curl http://localhost:8080/api/v1/restaurants
 - [миграции PostgreSQL](migrations/);
 - [исходники архитектурных диаграмм](docs/architecture/);
 - [исходники CJM](docs/cjm/).
+- [план развития проекта](docs/roadmap.md).
 
 ## Разработка и тесты
 

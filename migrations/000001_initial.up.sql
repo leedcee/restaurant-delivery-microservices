@@ -127,8 +127,8 @@ INSERT INTO restaurants (id, external_id, name, description)
 VALUES (
     '11111111-1111-1111-1111-111111111111',
     'demo-cafe',
-    'Демо-кафе',
-    'Тестовое заведение для демонстрации интеграции'
+    'Тёплый хлеб',
+    'Завтраки и домашняя кухня'
 );
 
 INSERT INTO restaurant_integrations (restaurant_id, order_endpoint, api_key_hash)
