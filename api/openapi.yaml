@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Restaurant Delivery Platform API
   version: 0.1.0
-  description: API for customers and partner restaurants in the graduation project prototype.
+  description: API for customers and partner restaurants in the delivery platform.
 servers:
   - url: http://localhost:8080
 security: []

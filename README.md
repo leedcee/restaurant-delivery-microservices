@@ -1,8 +1,8 @@
 <h1 align="center">Restaurant Delivery Platform</h1>
 
 <p align="center">
-  Backend-прототип для ВКР<br>
-  <strong>«Процесс автоматизации организации заказов и доставки еды из ресторанов с использованием микросервисной архитектуры»</strong>
+  Backend-платформа для автоматизации заказов и доставки еды из ресторанов<br>
+  <strong>Go · PostgreSQL · Transactional Outbox · Docker</strong>
 </p>
 
 <p align="center">

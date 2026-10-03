@@ -7,7 +7,7 @@ skinparam rectangle {
 actor "Пользователь" as user
 actor "Сотрудник заведения" as partner
 rectangle "Web-клиент\n(вне реализации)" as web
-rectangle "Платформа заказа и доставки еды\nBackend-прототип ВКР" as platform
+rectangle "Платформа заказа и доставки еды\nGo backend" as platform
 rectangle "Система заведения" as restaurant
 
 user --> web : Ищет еду и оформляет заказ
