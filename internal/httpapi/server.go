@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"restaurant-delivery-system/internal/domain"
@@ -34,15 +35,17 @@ func New(db *pgxpool.Pool, logger *slog.Logger) http.Handler {
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
 	router.Use(middleware.Recoverer)
-	router.Use(middleware.Timeout(10 * time.Second))
+	router.Use(requestTimeout(10 * time.Second))
 	router.Use(cors)
 	router.Get("/health/live", server.live)
 	router.Get("/health/ready", server.ready)
 	router.Get("/api/v1/restaurants", server.listRestaurants)
 	router.Get("/api/v1/restaurants/{restaurantID}/menu", server.getMenu)
 	router.Post("/api/v1/orders/quote", server.quoteOrder)
+	router.Get("/api/v1/orders", server.listUserOrders)
 	router.Post("/api/v1/orders", server.createOrder)
 	router.Get("/api/v1/orders/{orderID}", server.getOrder)
+	router.Get("/api/v1/orders/{orderID}/events", server.streamOrder)
 	router.Put("/partner/v1/menu", server.replacePartnerMenu)
 	router.Get("/partner/v1/orders", server.listPartnerOrders)
 	router.Patch("/partner/v1/orders/{orderID}/status", server.updatePartnerOrderStatus)
@@ -151,6 +154,86 @@ func (s *server) getOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, order)
+}
+
+func (s *server) listUserOrders(w http.ResponseWriter, r *http.Request) {
+	uid, err := userID(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	items, err := s.orders.ListForUser(r.Context(), uid)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *server) streamOrder(w http.ResponseWriter, r *http.Request) {
+	uid, err := userID(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	orderID, err := uuid.Parse(chi.URLParam(r, "orderID"))
+	if err != nil {
+		s.fail(w, r, fmt.Errorf("%w: invalid order id", domain.ErrValidation))
+		return
+	}
+	order, err := s.orders.Get(r.Context(), orderID, uid)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		s.fail(w, r, errors.New("streaming is unsupported"))
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	sendOrderEvent(w, flusher, order)
+	if terminalStatus(order.Status) {
+		return
+	}
+
+	ticker := time.NewTicker(750 * time.Millisecond)
+	defer ticker.Stop()
+	lastStatus := order.Status
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			current, getErr := s.orders.Get(r.Context(), orderID, uid)
+			if getErr != nil {
+				return
+			}
+			if current.Status == lastStatus {
+				continue
+			}
+			lastStatus = current.Status
+			sendOrderEvent(w, flusher, current)
+			if terminalStatus(current.Status) {
+				return
+			}
+		}
+	}
+}
+
+func sendOrderEvent(w http.ResponseWriter, flusher http.Flusher, order domain.Order) {
+	data, err := json.Marshal(order)
+	if err != nil {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "event: order\ndata: %s\n\n", data)
+	flusher.Flush()
+}
+
+func terminalStatus(status domain.OrderStatus) bool {
+	return status == domain.OrderDelivered || status == domain.OrderCancelled || status == domain.OrderRejected
 }
 
 func (s *server) replacePartnerMenu(w http.ResponseWriter, r *http.Request) {
@@ -268,4 +351,17 @@ func cors(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func requestTimeout(duration time.Duration) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		regular := middleware.Timeout(duration)(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/events") {
+				next.ServeHTTP(w, r)
+				return
+			}
+			regular.ServeHTTP(w, r)
+		})
+	}
 }

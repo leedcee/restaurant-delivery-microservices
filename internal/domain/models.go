@@ -63,10 +63,11 @@ type QuoteItem struct {
 }
 
 type OrderQuote struct {
-	RestaurantID uuid.UUID   `json:"restaurantId"`
-	Items        []QuoteItem `json:"items"`
-	TotalMinor   int64       `json:"totalMinor"`
-	Currency     string      `json:"currency"`
+	RestaurantID     uuid.UUID   `json:"restaurantId"`
+	Items            []QuoteItem `json:"items"`
+	DeliveryFeeMinor int64       `json:"deliveryFeeMinor"`
+	TotalMinor       int64       `json:"totalMinor"`
+	Currency         string      `json:"currency"`
 }
 
 type OrderStatus string
@@ -83,16 +84,17 @@ const (
 )
 
 type Order struct {
-	ID              uuid.UUID   `json:"id"`
-	UserID          uuid.UUID   `json:"userId"`
-	RestaurantID    uuid.UUID   `json:"restaurantId"`
-	Items           []QuoteItem `json:"items"`
-	TotalMinor      int64       `json:"totalMinor"`
-	Currency        string      `json:"currency"`
-	Status          OrderStatus `json:"status"`
-	DeliveryAddress string      `json:"deliveryAddress"`
-	RejectionReason *string     `json:"rejectionReason"`
-	CreatedAt       time.Time   `json:"createdAt"`
+	ID               uuid.UUID   `json:"id"`
+	UserID           uuid.UUID   `json:"userId"`
+	RestaurantID     uuid.UUID   `json:"restaurantId"`
+	Items            []QuoteItem `json:"items"`
+	DeliveryFeeMinor int64       `json:"deliveryFeeMinor"`
+	TotalMinor       int64       `json:"totalMinor"`
+	Currency         string      `json:"currency"`
+	Status           OrderStatus `json:"status"`
+	DeliveryAddress  string      `json:"deliveryAddress"`
+	RejectionReason  *string     `json:"rejectionReason"`
+	CreatedAt        time.Time   `json:"createdAt"`
 }
 
 func CanTransition(from, to OrderStatus) bool {

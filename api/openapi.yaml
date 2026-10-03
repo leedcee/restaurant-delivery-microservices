@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Restaurant Delivery Platform API
-  version: 0.1.0
+  version: 0.2.0
   description: API for customers and partner restaurants in the delivery platform.
 servers:
   - url: http://localhost:8080
@@ -88,6 +88,25 @@ paths:
         '422':
           $ref: '#/components/responses/ValidationError'
   /api/v1/orders:
+    get:
+      summary: List orders of the current user
+      tags: [Customer]
+      operationId: listUserOrders
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Orders sorted from newest to oldest
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
     post:
       summary: Create an order idempotently
       tags: [Customer]
@@ -146,6 +165,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Order'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/orders/{orderId}/events:
+    get:
+      summary: Stream order state changes with Server-Sent Events
+      tags: [Customer]
+      operationId: streamOrder
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: SSE stream with `order` events containing an Order JSON object
+          content:
+            text/event-stream:
+              schema:
+                type: string
         '404':
           $ref: '#/components/responses/NotFound'
   /partner/v1/menu:
@@ -386,7 +427,7 @@ components:
           format: int64
     OrderQuote:
       type: object
-      required: [restaurantId, items, totalMinor, currency]
+      required: [restaurantId, items, deliveryFeeMinor, totalMinor, currency]
       properties:
         restaurantId:
           type: string
@@ -395,6 +436,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/QuoteItem'
+        deliveryFeeMinor:
+          type: integer
+          format: int64
+          minimum: 0
         totalMinor:
           type: integer
           format: int64

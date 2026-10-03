@@ -22,6 +22,8 @@ type Service struct {
 	db *pgxpool.Pool
 }
 
+const deliveryFeeMinor int64 = 13000
+
 func New(db *pgxpool.Pool) *Service {
 	return &Service{db: db}
 }
@@ -95,7 +97,7 @@ func (s *Service) Create(
 
 	items := append([]domain.DraftItem(nil), draft.Items...)
 	sort.Slice(items, func(i, j int) bool { return items[i].ProductID.String() < items[j].ProductID.String() })
-	quote := domain.OrderQuote{RestaurantID: draft.RestaurantID, Items: make([]domain.QuoteItem, 0, len(items)), Currency: "RUB"}
+	quote := domain.OrderQuote{RestaurantID: draft.RestaurantID, Items: make([]domain.QuoteItem, 0, len(items)), DeliveryFeeMinor: deliveryFeeMinor, TotalMinor: deliveryFeeMinor, Currency: "RUB"}
 	seen := make(map[uuid.UUID]struct{}, len(items))
 	for _, requested := range items {
 		if _, duplicate := seen[requested.ProductID]; duplicate {
@@ -133,14 +135,14 @@ func (s *Service) Create(
 
 	order := domain.Order{
 		ID: uuid.New(), UserID: userID, RestaurantID: draft.RestaurantID, Items: quote.Items,
-		TotalMinor: quote.TotalMinor, Currency: quote.Currency, Status: domain.OrderPending,
+		DeliveryFeeMinor: quote.DeliveryFeeMinor, TotalMinor: quote.TotalMinor, Currency: quote.Currency, Status: domain.OrderPending,
 		DeliveryAddress: strings.TrimSpace(draft.DeliveryAddress),
 	}
 	err = tx.QueryRow(ctx, `
-		INSERT INTO orders (id, user_id, restaurant_id, idempotency_key, request_hash, total_minor, currency, delivery_address)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING created_at`,
-		order.ID, order.UserID, order.RestaurantID, idempotencyKey, requestHash, order.TotalMinor,
-		order.Currency, order.DeliveryAddress).Scan(&order.CreatedAt)
+		INSERT INTO orders (id, user_id, restaurant_id, idempotency_key, request_hash, delivery_fee_minor, total_minor, currency, delivery_address)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING created_at`,
+		order.ID, order.UserID, order.RestaurantID, idempotencyKey, requestHash, order.DeliveryFeeMinor,
+		order.TotalMinor, order.Currency, order.DeliveryAddress).Scan(&order.CreatedAt)
 	if err != nil {
 		return domain.Order{}, false, fmt.Errorf("insert order: %w", err)
 	}
@@ -181,28 +183,36 @@ func (s *Service) Get(ctx context.Context, orderID, userID uuid.UUID) (domain.Or
 	return getOrder(ctx, s.db, orderID, userID, uuid.Nil)
 }
 
+func (s *Service) ListForUser(ctx context.Context, userID uuid.UUID) ([]domain.Order, error) {
+	return s.list(ctx, `SELECT id FROM orders WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100`, userID, userID, uuid.Nil)
+}
+
 func (s *Service) ListForRestaurant(ctx context.Context, restaurantID uuid.UUID) ([]domain.Order, error) {
-	rows, err := s.db.Query(ctx, `SELECT id FROM orders WHERE restaurant_id = $1 ORDER BY created_at DESC LIMIT 100`, restaurantID)
+	return s.list(ctx, `SELECT id FROM orders WHERE restaurant_id = $1 ORDER BY created_at DESC LIMIT 100`, restaurantID, uuid.Nil, restaurantID)
+}
+
+func (s *Service) list(ctx context.Context, query string, queryID, userID, restaurantID uuid.UUID) ([]domain.Order, error) {
+	rows, err := s.db.Query(ctx, query, queryID)
 	if err != nil {
-		return nil, fmt.Errorf("list restaurant orders: %w", err)
+		return nil, fmt.Errorf("list orders: %w", err)
 	}
 	ids := make([]uuid.UUID, 0)
 	for rows.Next() {
 		var id uuid.UUID
 		if err := rows.Scan(&id); err != nil {
 			rows.Close()
-			return nil, fmt.Errorf("scan restaurant order: %w", err)
+			return nil, fmt.Errorf("scan order: %w", err)
 		}
 		ids = append(ids, id)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return nil, fmt.Errorf("iterate restaurant orders: %w", err)
+		return nil, fmt.Errorf("iterate orders: %w", err)
 	}
 	rows.Close()
 	result := make([]domain.Order, 0, len(ids))
 	for _, id := range ids {
-		order, err := getOrder(ctx, s.db, id, uuid.Nil, restaurantID)
+		order, err := getOrder(ctx, s.db, id, userID, restaurantID)
 		if err != nil {
 			return nil, err
 		}
@@ -272,7 +282,7 @@ type rowQuerier interface {
 }
 
 func quoteItems(ctx context.Context, db rowQuerier, draft domain.OrderDraft) (domain.OrderQuote, error) {
-	quote := domain.OrderQuote{RestaurantID: draft.RestaurantID, Items: make([]domain.QuoteItem, 0, len(draft.Items)), Currency: "RUB"}
+	quote := domain.OrderQuote{RestaurantID: draft.RestaurantID, Items: make([]domain.QuoteItem, 0, len(draft.Items)), DeliveryFeeMinor: deliveryFeeMinor, TotalMinor: deliveryFeeMinor, Currency: "RUB"}
 	seen := make(map[uuid.UUID]struct{}, len(draft.Items))
 	for _, requested := range draft.Items {
 		if _, duplicate := seen[requested.ProductID]; duplicate {
@@ -360,7 +370,7 @@ func fingerprint(draft domain.OrderDraft) (string, error) {
 }
 
 func getOrder(ctx context.Context, db rowQuerier, orderID, userID, restaurantID uuid.UUID) (domain.Order, error) {
-	query := `SELECT id, user_id, restaurant_id, total_minor, currency, status, delivery_address,
+	query := `SELECT id, user_id, restaurant_id, delivery_fee_minor, total_minor, currency, status, delivery_address,
 	                 rejection_reason, created_at FROM orders WHERE id = $1`
 	args := []any{orderID}
 	if userID != uuid.Nil {
@@ -372,7 +382,7 @@ func getOrder(ctx context.Context, db rowQuerier, orderID, userID, restaurantID 
 	}
 	var order domain.Order
 	err := db.QueryRow(ctx, query, args...).Scan(&order.ID, &order.UserID, &order.RestaurantID,
-		&order.TotalMinor, &order.Currency, &order.Status, &order.DeliveryAddress,
+		&order.DeliveryFeeMinor, &order.TotalMinor, &order.Currency, &order.Status, &order.DeliveryAddress,
 		&order.RejectionReason, &order.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Order{}, domain.ErrNotFound

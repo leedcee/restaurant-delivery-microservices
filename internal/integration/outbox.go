@@ -104,9 +104,9 @@ func (w *Worker) claim(ctx context.Context) (delivery, error) {
 	if err != nil {
 		return delivery{}, fmt.Errorf("claim outbox event: %w", err)
 	}
-	err = tx.QueryRow(ctx, `SELECT id, user_id, restaurant_id, total_minor, currency, status,
+	err = tx.QueryRow(ctx, `SELECT id, user_id, restaurant_id, delivery_fee_minor, total_minor, currency, status,
 		delivery_address, rejection_reason, created_at FROM orders WHERE id = $1`, item.Order.ID).
-		Scan(&item.Order.ID, &item.Order.UserID, &item.Order.RestaurantID, &item.Order.TotalMinor,
+		Scan(&item.Order.ID, &item.Order.UserID, &item.Order.RestaurantID, &item.Order.DeliveryFeeMinor, &item.Order.TotalMinor,
 			&item.Order.Currency, &item.Order.Status, &item.Order.DeliveryAddress,
 			&item.Order.RejectionReason, &item.Order.CreatedAt)
 	if err != nil {

@@ -1,4 +1,4 @@
-export type Screen = 'catalog' | 'menu' | 'checkout' | 'tracking'
+export type Screen = 'catalog' | 'menu' | 'checkout' | 'orders' | 'tracking'
 
 export interface Restaurant {
   id: string
@@ -43,9 +43,21 @@ export interface QuoteItem {
 
 export interface Order {
   id: string
+  userId?: string
+  restaurantId?: string
   status: string
   deliveryAddress: string
   items: QuoteItem[]
+  deliveryFeeMinor: number
+  totalMinor: number
+  currency: string
+  createdAt?: string
+}
+
+export interface OrderQuote {
+  restaurantId: string
+  items: QuoteItem[]
+  deliveryFeeMinor: number
   totalMinor: number
   currency: string
 }

@@ -53,6 +53,12 @@ func TestOrderJourney(t *testing.T) {
 		Items:           []domain.DraftItem{{ProductID: productID, Quantity: 2}},
 	}
 	headers := map[string]string{"X-User-ID": userID, "Idempotency-Key": key}
+	var quote domain.OrderQuote
+	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/orders/quote", draft,
+		map[string]string{"X-User-ID": userID}, http.StatusOK, &quote)
+	if quote.DeliveryFeeMinor != 13000 || quote.TotalMinor != 37600 {
+		t.Fatalf("unexpected quote: delivery=%d total=%d", quote.DeliveryFeeMinor, quote.TotalMinor)
+	}
 	var created domain.Order
 	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/orders", draft, headers, http.StatusCreated, &created)
 	var repeated domain.Order
@@ -70,6 +76,14 @@ func TestOrderJourney(t *testing.T) {
 		doJSON(t, client, http.MethodGet, baseURL+"/api/v1/orders/"+created.ID.String(), nil,
 			map[string]string{"X-User-ID": userID}, http.StatusOK, &current)
 		if current.Status == domain.OrderDelivered {
+			var history struct {
+				Items []domain.Order `json:"items"`
+			}
+			doJSON(t, client, http.MethodGet, baseURL+"/api/v1/orders", nil,
+				map[string]string{"X-User-ID": userID}, http.StatusOK, &history)
+			if len(history.Items) != 1 || history.Items[0].ID != created.ID {
+				t.Fatalf("order history does not contain created order: %+v", history.Items)
+			}
 			return
 		}
 		time.Sleep(250 * time.Millisecond)
