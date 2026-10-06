@@ -44,7 +44,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.New(db, logger),
+		Handler:           httpapi.New(db, logger, cfg.JWTSecret),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go integration.NewWorker(db, logger).Run(ctx)

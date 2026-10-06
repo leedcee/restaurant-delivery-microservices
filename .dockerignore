@@ -7,3 +7,8 @@ coverage.out
 work
 outputs
 *.log
+frontend/node_modules
+frontend/dist
+frontend/.npm-cache
+frontend/playwright-report
+frontend/test-results

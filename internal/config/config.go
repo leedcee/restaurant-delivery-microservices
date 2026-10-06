@@ -10,6 +10,7 @@ import (
 type Platform struct {
 	HTTPAddr    string
 	DatabaseURL string
+	JWTSecret   string
 }
 
 // DemoRestaurant contains configuration for the example partner service.
@@ -24,6 +25,7 @@ func PlatformFromEnv() (Platform, error) {
 	cfg := Platform{
 		HTTPAddr:    valueOrDefault("PLATFORM_HTTP_ADDR", ":8080"),
 		DatabaseURL: os.Getenv("DATABASE_URL"),
+		JWTSecret:   valueOrDefault("JWT_SECRET", "dev-only-change-me"),
 	}
 	if cfg.DatabaseURL == "" {
 		return Platform{}, fmt.Errorf("DATABASE_URL is required")

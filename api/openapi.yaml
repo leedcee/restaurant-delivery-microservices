@@ -1,12 +1,13 @@
 openapi: 3.0.3
 info:
   title: Restaurant Delivery Platform API
-  version: 0.2.0
+  version: 0.3.0
   description: API for customers and partner restaurants in the delivery platform.
 servers:
   - url: http://localhost:8080
 security: []
 tags:
+  - name: Auth
   - name: Customer
   - name: Partner
   - name: Health
@@ -63,6 +64,88 @@ paths:
                 $ref: '#/components/schemas/Menu'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/auth/register:
+    post:
+      summary: Register a customer and issue a token pair
+      tags: [Auth]
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Registration'
+      responses:
+        '201':
+          description: Customer registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/auth/login:
+    post:
+      summary: Authenticate a customer and issue a token pair
+      tags: [Auth]
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+      responses:
+        '200':
+          description: Authenticated session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/refresh:
+    post:
+      summary: Rotate a refresh token and issue a new token pair
+      tags: [Auth]
+      operationId: refreshSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Rotated session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/me:
+    get:
+      summary: Return the authenticated customer
+      tags: [Auth]
+      security:
+        - bearerAuth: []
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: Current customer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/v1/orders/quote:
     post:
       summary: Calculate and validate an order draft
@@ -271,6 +354,10 @@ paths:
           $ref: '#/components/responses/Conflict'
 components:
   securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
     partnerApiKey:
       type: apiKey
       in: header
@@ -325,6 +412,59 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
   schemas:
+    Registration:
+      type: object
+      required: [email, password, name]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 8
+        name:
+          type: string
+          minLength: 1
+    Login:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+    User:
+      type: object
+      required: [id, email, name, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    AuthSession:
+      type: object
+      required: [user, accessToken, refreshToken, expiresIn]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+          format: int64
+          description: Access-token lifetime in seconds
     Restaurant:
       type: object
       required: [id, name, description, isOpen]

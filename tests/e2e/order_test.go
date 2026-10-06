@@ -34,8 +34,10 @@ func TestOrderJourney(t *testing.T) {
 		baseURL+"/api/v1/restaurants/11111111-1111-1111-1111-111111111111/menu",
 		nil, nil, http.StatusOK, &menu)
 	var productID uuid.UUID
+	activeProducts := 0
 	for _, category := range menu.Categories {
 		for _, product := range category.Products {
+			activeProducts++
 			if product.Name == "E2E product" {
 				productID = product.ID
 			}
@@ -43,6 +45,9 @@ func TestOrderJourney(t *testing.T) {
 	}
 	if productID == uuid.Nil {
 		t.Fatal("published product was not returned by menu")
+	}
+	if activeProducts != 1 {
+		t.Fatalf("replace menu left %d active products, want 1", activeProducts)
 	}
 
 	userID := uuid.New().String()

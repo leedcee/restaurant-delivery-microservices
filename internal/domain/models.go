@@ -127,3 +127,17 @@ type PartnerProduct struct {
 	Quantity    int    `json:"quantity"`
 	Available   bool   `json:"available"`
 }
+
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type AuthSession struct {
+	User         User   `json:"user"`
+	AccessToken  string `json:"accessToken"`
+	RefreshToken string `json:"refreshToken"`
+	ExpiresIn    int64  `json:"expiresIn"`
+}

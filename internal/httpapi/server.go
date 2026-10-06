@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"restaurant-delivery-system/internal/domain"
+	"restaurant-delivery-system/internal/identity"
 	"restaurant-delivery-system/internal/orders"
 	"restaurant-delivery-system/internal/store"
 
@@ -22,15 +23,16 @@ import (
 )
 
 type server struct {
-	db      *pgxpool.Pool
-	logger  *slog.Logger
-	queries *store.Queries
-	orders  *orders.Service
+	db       *pgxpool.Pool
+	logger   *slog.Logger
+	queries  *store.Queries
+	orders   *orders.Service
+	identity *identity.Service
 }
 
 // New creates the HTTP handler for the main API.
-func New(db *pgxpool.Pool, logger *slog.Logger) http.Handler {
-	server := &server{db: db, logger: logger, queries: store.NewQueries(db), orders: orders.New(db)}
+func New(db *pgxpool.Pool, logger *slog.Logger, jwtSecret string) http.Handler {
+	server := &server{db: db, logger: logger, queries: store.NewQueries(db), orders: orders.New(db), identity: identity.New(db, jwtSecret)}
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
@@ -41,6 +43,10 @@ func New(db *pgxpool.Pool, logger *slog.Logger) http.Handler {
 	router.Get("/health/ready", server.ready)
 	router.Get("/api/v1/restaurants", server.listRestaurants)
 	router.Get("/api/v1/restaurants/{restaurantID}/menu", server.getMenu)
+	router.Post("/api/v1/auth/register", server.register)
+	router.Post("/api/v1/auth/login", server.login)
+	router.Post("/api/v1/auth/refresh", server.refresh)
+	router.Get("/api/v1/auth/me", server.me)
 	router.Post("/api/v1/orders/quote", server.quoteOrder)
 	router.Get("/api/v1/orders", server.listUserOrders)
 	router.Post("/api/v1/orders", server.createOrder)
@@ -96,8 +102,66 @@ func (s *server) getMenu(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, menu)
 }
 
+func (s *server) register(w http.ResponseWriter, r *http.Request) {
+	var input identity.Registration
+	if err := decodeJSON(r, &input); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	session, err := s.identity.Register(r.Context(), input)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, session)
+}
+
+func (s *server) login(w http.ResponseWriter, r *http.Request) {
+	var input identity.Login
+	if err := decodeJSON(r, &input); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	session, err := s.identity.Login(r.Context(), input)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (s *server) refresh(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		RefreshToken string `json:"refreshToken"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	session, err := s.identity.Refresh(r.Context(), input.RefreshToken)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (s *server) me(w http.ResponseWriter, r *http.Request) {
+	uid, err := s.userID(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	user, err := s.identity.GetUser(r.Context(), uid)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, user)
+}
+
 func (s *server) quoteOrder(w http.ResponseWriter, r *http.Request) {
-	if _, err := userID(r); err != nil {
+	if _, err := s.userID(r); err != nil {
 		s.fail(w, r, err)
 		return
 	}
@@ -115,7 +179,7 @@ func (s *server) quoteOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) createOrder(w http.ResponseWriter, r *http.Request) {
-	uid, err := userID(r)
+	uid, err := s.userID(r)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -138,7 +202,7 @@ func (s *server) createOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) getOrder(w http.ResponseWriter, r *http.Request) {
-	uid, err := userID(r)
+	uid, err := s.userID(r)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -157,7 +221,7 @@ func (s *server) getOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) listUserOrders(w http.ResponseWriter, r *http.Request) {
-	uid, err := userID(r)
+	uid, err := s.userID(r)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -171,7 +235,7 @@ func (s *server) listUserOrders(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) streamOrder(w http.ResponseWriter, r *http.Request) {
-	uid, err := userID(r)
+	uid, err := s.userID(r)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -295,10 +359,15 @@ func (s *server) listPartnerOrders(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
-func userID(r *http.Request) (uuid.UUID, error) {
+func (s *server) userID(r *http.Request) (uuid.UUID, error) {
+	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
+	if strings.HasPrefix(strings.ToLower(authorization), "bearer ") {
+		return s.identity.AuthenticateAccess(strings.TrimSpace(authorization[7:]))
+	}
+	// Compatibility path for the current trusted-gateway and E2E setup.
 	id, err := uuid.Parse(r.Header.Get("X-User-ID"))
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("%w: valid X-User-ID is required", domain.ErrValidation)
+		return uuid.Nil, fmt.Errorf("%w: bearer token is required", domain.ErrUnauthorized)
 	}
 	return id, nil
 }
@@ -343,7 +412,7 @@ func cors(next http.Handler) http.Handler {
 		w.Header().Set("X-Request-ID", middleware.GetReqID(r.Context()))
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-User-ID, X-API-Key, Idempotency-Key")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-User-ID, X-API-Key, Idempotency-Key")
 		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

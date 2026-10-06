@@ -61,6 +61,8 @@ func (q *Queries) GetMenu(ctx context.Context, restaurantID uuid.UUID) (domain.M
 		LEFT JOIN products p ON p.category_id = c.id AND p.is_active = true
 		LEFT JOIN product_inventory i ON i.product_id = p.id
 		WHERE c.restaurant_id = $1
+		  AND EXISTS (SELECT 1 FROM products active_product
+		              WHERE active_product.category_id = c.id AND active_product.is_active = true)
 		ORDER BY c.position, c.name, p.name`, restaurantID)
 	if err != nil {
 		return domain.Menu{}, fmt.Errorf("query menu: %w", err)
@@ -120,6 +122,10 @@ func (q *Queries) ReplaceMenu(ctx context.Context, restaurantID uuid.UUID, menu 
 		return fmt.Errorf("begin menu transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = tx.Exec(ctx, `UPDATE products SET is_active = false, updated_at = now()
+		WHERE restaurant_id = $1`, restaurantID); err != nil {
+		return fmt.Errorf("deactivate previous menu: %w", err)
+	}
 
 	for _, category := range menu.Categories {
 		if category.ExternalID == "" || category.Name == "" {

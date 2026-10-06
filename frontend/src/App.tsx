@@ -120,7 +120,7 @@ export default function App() {
   const loadMenu = useCallback(async (restaurant: Restaurant) => {
     setLoading((value) => ({ ...value, menu: true })); setErrors((value) => ({ ...value, menu: '' }))
     if (restaurant.id !== restaurants[0].id) { setMenu(demoMenu(restaurant)); setLoading((value) => ({ ...value, menu: false })); return }
-    try { const live = await fetchMenu(restaurant.id); const decorated = live.categories.flatMap((item) => item.products).map((product, index) => ({ ...product, art: ['round', 'square', 'triangle'][index % 3] as Product['art'] })); setMenu({ ...live, restaurant: { ...restaurant, ...live.restaurant }, categories: [{ id: 'all', name: 'Популярное', products: decorated }, ...live.categories.map((item) => ({ ...item, products: [] }))] }) }
+    try { const live = await fetchMenu(restaurant.id); let productIndex = 0; const categories = live.categories.map((item) => ({ ...item, products: item.products.map((product) => ({ ...product, art: ['round', 'square', 'triangle'][productIndex++ % 3] as Product['art'] })) })); setMenu({ ...live, restaurant: { ...restaurant, ...live.restaurant }, categories }) }
     catch { setMenu(demoMenu(restaurant)); setErrors((value) => ({ ...value, menu: 'Актуальное меню недоступно.' })) }
     finally { setLoading((value) => ({ ...value, menu: false })) }
   }, [restaurants])
