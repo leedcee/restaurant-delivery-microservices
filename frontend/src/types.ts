@@ -1,4 +1,4 @@
-export type Screen = 'catalog' | 'menu' | 'checkout' | 'orders' | 'tracking'
+export type Screen = 'catalog' | 'menu' | 'checkout' | 'orders' | 'tracking' | 'auth' | 'profile'
 
 export interface Restaurant {
   id: string
@@ -63,3 +63,17 @@ export interface OrderQuote {
 }
 
 export type Cart = Record<string, number>
+
+export interface User {
+  id: string
+  email: string
+  name: string
+  createdAt: string
+}
+
+export interface AuthSession {
+  user: User
+  accessToken: string
+  refreshToken: string
+  expiresIn: number
+}

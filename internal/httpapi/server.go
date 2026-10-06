@@ -161,10 +161,6 @@ func (s *server) me(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) quoteOrder(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.userID(r); err != nil {
-		s.fail(w, r, err)
-		return
-	}
 	var draft domain.OrderDraft
 	if err := decodeJSON(r, &draft); err != nil {
 		s.fail(w, r, err)

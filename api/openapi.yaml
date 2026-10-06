@@ -151,8 +151,6 @@ paths:
       summary: Calculate and validate an order draft
       tags: [Customer]
       operationId: quoteOrder
-      parameters:
-        - $ref: '#/components/parameters/UserId'
       requestBody:
         required: true
         content:

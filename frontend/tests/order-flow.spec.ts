@@ -3,11 +3,19 @@ import { expect, test } from '@playwright/test'
 const restaurantId = '11111111-1111-1111-1111-111111111111'
 const productId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1'
 const orderId = '99999999-9999-9999-9999-999999999999'
+const user = { id: '55555555-5555-5555-5555-555555555555', name: 'Лидси', email: 'leedcee@example.com', createdAt: '2026-10-06T09:00:00Z' }
+const session = { user, accessToken: 'access-token', refreshToken: 'refresh-token', expiresIn: 900 }
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request()
     const path = new URL(request.url()).pathname
+    if (path === '/api/v1/auth/register') {
+      return route.fulfill({ status: 201, json: session })
+    }
+    if (path === '/api/v1/auth/login') {
+      return route.fulfill({ json: session })
+    }
     if (path === '/api/v1/restaurants') {
       return route.fulfill({ json: { items: [{ id: restaurantId, name: 'Тёплый хлеб', description: 'Завтраки', isOpen: true }] } })
     }
@@ -32,6 +40,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('customer completes the order journey and receives a live status', async ({ page }) => {
+  await page.addInitScript((authSession) => localStorage.setItem('looch-auth-v1', JSON.stringify(authSession)), session)
   await page.goto('/')
   await page.getByRole('button', { name: /Тёплый хлеб/ }).click()
   await expect(page).toHaveURL(`/restaurants/${restaurantId}`)
@@ -42,6 +51,24 @@ test('customer completes the order journey and receives a live status', async ({
   await page.getByRole('button', { name: 'Оформить заказ' }).click()
   await expect(page).toHaveURL(`/orders/${orderId}`)
   await expect(page.getByText('Заказ доставлен')).toBeVisible()
+})
+
+test('customer registers and opens the profile', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByRole('button', { name: 'Регистрация' }).click()
+  await page.getByLabel('Имя').fill('Лидси')
+  await page.getByLabel('Электронная почта').fill('leedcee@example.com')
+  await page.getByLabel('Пароль').fill('strong-password')
+  await page.getByRole('button', { name: 'Создать аккаунт' }).click()
+  await expect(page).toHaveURL('/profile')
+  await expect(page.getByRole('heading', { name: 'Лидси' })).toBeVisible()
+  await expect(page.getByText('leedcee@example.com')).toBeVisible()
+})
+
+test('private order history redirects a guest to login', async ({ page }) => {
+  await page.goto('/orders')
+  await expect(page).toHaveURL('/login?return=%2Forders')
+  await expect(page.getByRole('heading', { name: 'С возвращением' })).toBeVisible()
 })
 
 test('cart survives page reload', async ({ page }) => {

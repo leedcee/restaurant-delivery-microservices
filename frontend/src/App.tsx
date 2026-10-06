@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createOrder, fetchMenu, fetchOrder, fetchOrders, fetchRestaurants, quoteOrder, streamOrder } from './api'
+import { getSession, login, register, saveSession, subscribeToSession } from './auth'
 import { demoMenu, demoRestaurants } from './mock'
-import type { Cart, Menu, Order, OrderQuote, Product, Restaurant, Screen } from './types'
+import type { AuthSession, Cart, Menu, Order, OrderQuote, Product, Restaurant, Screen } from './types'
 
 const money = (minor: number) => `${new Intl.NumberFormat('ru-RU').format(minor / 100)} ₽`
 const CART_KEY = 'looch-cart-v1'
@@ -12,6 +13,8 @@ function routeFromPath(): { screen: Screen; id?: string } {
   if (parts[0] === 'checkout') return { screen: 'checkout' }
   if (parts[0] === 'orders' && parts[1]) return { screen: 'tracking', id: parts[1] }
   if (parts[0] === 'orders') return { screen: 'orders' }
+  if (parts[0] === 'login') return { screen: 'auth' }
+  if (parts[0] === 'profile') return { screen: 'profile' }
   return { screen: 'catalog' }
 }
 
@@ -26,14 +29,14 @@ function FoodArt({ kind = 'round', restaurant = false }: { kind?: string; restau
   return <div className={`food-art food-art--${kind} ${restaurant ? 'food-art--restaurant' : ''}`} aria-hidden="true"><span /><i /><b /></div>
 }
 
-function Header({ screen, go }: { screen: Screen; go: (screen: Screen) => void }) {
+function Header({ screen, session, go }: { screen: Screen; session: AuthSession | null; go: (screen: Screen) => void }) {
   return <header className="header shell">
     <button className="brand" onClick={() => go('catalog')} aria-label="На главную"><strong>LOOCH</strong><span>еда рядом</span></button>
     <nav aria-label="Основная навигация">
       <button className={screen === 'catalog' || screen === 'menu' ? 'active' : ''} onClick={() => go('catalog')}>Рестораны</button>
       <button className={screen === 'checkout' || screen === 'orders' || screen === 'tracking' ? 'active' : ''} onClick={() => go('orders')}>Заказы</button>
-      <button>Профиль</button>
-    </nav><div className="avatar">Л</div>
+      <button className={screen === 'profile' || screen === 'auth' ? 'active' : ''} onClick={() => go('profile')}>Профиль</button>
+    </nav><button className="avatar" onClick={() => go('profile')} aria-label={session ? `Профиль ${session.user.name}` : 'Войти'}>{session?.user.name.trim().charAt(0).toUpperCase() || '→'}</button>
   </header>
 }
 
@@ -87,6 +90,26 @@ function Tracking({ order, streamError, retry }: { order: Order; streamError: st
   return <main className="shell page tracking-page"><div className="tracking-heading"><div><p className="eyebrow coral">{statusLabel[order.status] ?? 'Заказ подтверждён'}</p><h1>Заказ № {shortId}</h1></div><span className="delivery-time">Доставим к 19:35</span></div>{streamError && <Notice retry={retry}>{streamError}</Notice>}<div className="status-track">{['Принят', 'Готовится', 'У курьера', 'Доставлен'].map((label, index) => <div className={index <= active ? 'done' : ''} key={label}><span>{index < active ? '✓' : ''}</span><b>{label}</b></div>)}</div><div className="tracking-layout"><div className="map-card"><div className="street-lines" /><svg viewBox="0 0 700 360" preserveAspectRatio="none" aria-label="Маршрут курьера"><polyline points="65,310 240,105 610,58" /><circle cx="65" cy="310" r="15" className="map-start" /><circle cx="610" cy="58" r="18" className="map-courier" /></svg><span className="map-label">Курьер Алексей</span></div><aside className="courier-card"><span className="courier-icon">А</span><div><h2>{order.status === 'delivered' ? 'Заказ доставлен' : `Курьер ${active >= 2 ? 'в пути' : 'скоро заберёт заказ'}`}</h2><p>Алексей&nbsp; · &nbsp;рейтинг 4,9</p></div><hr /><p className="muted">Адрес</p><strong>{order.deliveryAddress}</strong><p className="muted">Осталось примерно</p><b className="minutes">{order.status === 'delivered' ? 'Готово' : '12 минут'}</b><button className="button button--outline">Связаться с курьером</button></aside></div></main>
 }
 
+function AuthPage({ complete }: { complete: (session: AuthSession) => void }) {
+  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault(); setBusy(true); setError('')
+    try { complete(mode === 'register' ? await register({ name, email, password }) : await login({ email, password })) }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'Не удалось войти') }
+    finally { setBusy(false) }
+  }
+  return <main className="shell page auth-page"><section className="auth-copy"><p className="eyebrow coral">Личный кабинет</p><h1>{mode === 'login' ? 'С возвращением' : 'Начнём знакомство'}</h1><p>Войдите, чтобы оформлять заказы, отслеживать доставку и хранить историю в одном месте.</p><div className="auth-points"><span><b>01</b> Заказы защищены вашим аккаунтом</span><span><b>02</b> Сессия обновляется автоматически</span><span><b>03</b> История доступна на любом устройстве</span></div></section><form className="auth-card offset-card" onSubmit={submit}><div className="auth-switch" role="tablist"><button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); setError('') }}>Вход</button><button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => { setMode('register'); setError('') }}>Регистрация</button></div>{mode === 'register' && <label>Имя<input name="name" autoComplete="name" minLength={2} required value={name} onChange={(event) => setName(event.target.value)} placeholder="Как к вам обращаться" /></label>}<label>Электронная почта<input name="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" /></label><label>Пароль<input name="password" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Минимум 8 символов" /></label>{error && <p className="auth-error" role="alert">{error}</p>}<button className="button button--coral auth-submit" disabled={busy}>{busy ? 'Подождите…' : mode === 'login' ? 'Войти' : 'Создать аккаунт'}</button><small>Продолжая, вы соглашаетесь с условиями сервиса.</small></form></main>
+}
+
+function ProfilePage({ session, orders, openOrders, logout }: { session: AuthSession; orders: Order[]; openOrders: () => void; logout: () => void }) {
+  return <main className="shell page profile-page"><div className="profile-heading"><div><p className="eyebrow coral">Личный кабинет</p><h1>Профиль</h1></div><button className="button button--outline" onClick={logout}>Выйти</button></div><section className="profile-grid"><article className="profile-card profile-card--identity"><span className="profile-avatar">{session.user.name.trim().charAt(0).toUpperCase()}</span><div><h2>{session.user.name}</h2><p>{session.user.email}</p><small>С нами с {new Date(session.user.createdAt).toLocaleDateString('ru-RU')}</small></div></article><button className="profile-card profile-card--action" onClick={openOrders}><span>История заказов</span><strong>{orders.length ? `${orders.length} ${orders.length === 1 ? 'заказ' : 'заказа'}` : 'Открыть'} →</strong></button><article className="profile-card profile-card--muted"><span>Адреса доставки</span><strong>Скоро</strong><p>Следующим шагом добавим сохранённые адреса и быстрый выбор при оформлении.</p></article></section></main>
+}
+
 export default function App() {
   const initialRoute = useMemo(routeFromPath, [])
   const savedCart = useMemo(readSavedCart, [])
@@ -106,11 +129,23 @@ export default function App() {
   const [ordersRetry, setOrdersRetry] = useState(0)
   const [quoteRetry, setQuoteRetry] = useState(0)
   const [streamRetry, setStreamRetry] = useState(0)
+  const [session, setSession] = useState<AuthSession | null>(() => getSession())
 
   const navigate = useCallback((path: string) => { history.pushState({}, '', path); const next = routeFromPath(); setScreen(next.screen); setRouteId(next.id); window.scrollTo(0, 0) }, [])
-  const go = (next: Screen) => navigate(next === 'catalog' ? '/' : next === 'orders' ? '/orders' : next === 'checkout' ? '/checkout' : '/')
+  const go = (next: Screen) => {
+    const path = next === 'catalog' ? '/' : next === 'orders' ? '/orders' : next === 'checkout' ? '/checkout' : next === 'profile' ? '/profile' : next === 'auth' ? '/login' : '/'
+    if (!session && (next === 'orders' || next === 'profile')) { navigate(`/login?return=${encodeURIComponent(path)}`); return }
+    navigate(path)
+  }
   useEffect(() => { const listener = () => { const next = routeFromPath(); setScreen(next.screen); setRouteId(next.id) }; addEventListener('popstate', listener); return () => removeEventListener('popstate', listener) }, [])
+  useEffect(() => subscribeToSession(() => setSession(getSession())), [])
   useEffect(() => localStorage.setItem(CART_KEY, JSON.stringify({ restaurantId: selected.id, cart })), [selected.id, cart])
+
+  useEffect(() => {
+    if (session || (screen !== 'orders' && screen !== 'tracking' && screen !== 'profile')) return
+    const returnPath = screen === 'orders' ? '/orders' : screen === 'profile' ? '/profile' : `/orders/${routeId ?? ''}`
+    navigate(`/login?return=${encodeURIComponent(returnPath)}`)
+  }, [screen, routeId, session, navigate])
 
   useEffect(() => {
     setLoading((value) => ({ ...value, catalog: true })); setErrors((value) => ({ ...value, catalog: '' }))
@@ -136,13 +171,13 @@ export default function App() {
   }, [screen, cart, menu, selected.id, quoteRetry])
 
   useEffect(() => {
-    if (screen !== 'orders') return
+    if (screen !== 'orders' || !session) return
     setLoading((value) => ({ ...value, orders: true })); setErrors((value) => ({ ...value, orders: '' }))
     fetchOrders().then((items) => setOrders(order && !items.some((item) => item.id === order.id) ? [order, ...items] : items)).catch(() => { if (order) setOrders([order]); else setErrors((value) => ({ ...value, orders: 'Не удалось загрузить историю заказов.' })) }).finally(() => setLoading((value) => ({ ...value, orders: false })))
-  }, [screen, ordersRetry, order])
+  }, [screen, ordersRetry, order, session])
 
   useEffect(() => {
-    if (screen !== 'tracking' || !routeId || routeId.startsWith('demo-')) return
+    if (screen !== 'tracking' || !routeId || routeId.startsWith('demo-') || !session) return
     const controller = new AbortController(); setErrors((value) => ({ ...value, stream: '' }))
     const connect = async () => {
       try {
@@ -154,15 +189,23 @@ export default function App() {
     }
     void connect()
     return () => controller.abort()
-  }, [screen, routeId, streamRetry])
+  }, [screen, routeId, streamRetry, session])
 
   const choose = (restaurant: Restaurant) => { if (selected.id !== restaurant.id) setCart({}); setSelected(restaurant); navigate(`/restaurants/${restaurant.id}`) }
   const submit = async (address: string) => {
+    if (!session) { navigate('/login?return=%2Fcheckout'); return }
     setBusy(true); setErrors((value) => ({ ...value, submit: '' }))
     try { const products = menu.categories.flatMap((item) => item.products); const isDemo = products.some((item) => item.id.startsWith('aaaaaaaa')); const created: Order = isDemo ? { id: `demo-${Date.now()}`, status: 'delivering', deliveryAddress: address, currency: 'RUB', items: quote?.items ?? [], deliveryFeeMinor: quote?.deliveryFeeMinor ?? 13000, totalMinor: quote?.totalMinor ?? 0, createdAt: new Date().toISOString() } : await createOrder(selected.id, cart, address); setOrder(created); setOrders((items) => [created, ...items.filter((item) => item.id !== created.id)]); setCart({}); navigate(`/orders/${created.id}`) }
     catch (reason) { setErrors((value) => ({ ...value, submit: reason instanceof Error ? reason.message : 'Не удалось оформить заказ' })) }
     finally { setBusy(false) }
   }
 
-  return <><Header screen={screen} go={go} />{screen === 'catalog' && <Catalog restaurants={restaurants} choose={choose} loading={loading.catalog} error={errors.catalog} retry={() => setCatalogRetry((value) => value + 1)} />}{screen === 'menu' && <MenuPage menu={menu} cart={cart} setCart={setCart} checkout={() => go('checkout')} loading={loading.menu} error={errors.menu} retry={() => void loadMenu(selected)} />}{screen === 'checkout' && <Checkout quote={quote} submit={submit} busy={busy} error={errors.submit} quoteLoading={loading.quote} quoteError={errors.quote} retryQuote={() => setQuoteRetry((value) => value + 1)} />}{screen === 'orders' && <OrdersPage orders={orders} loading={loading.orders} error={errors.orders} retry={() => setOrdersRetry((value) => value + 1)} open={(item) => { setOrder(item); navigate(`/orders/${item.id}`) }} />}{screen === 'tracking' && order && <Tracking order={order} streamError={errors.stream} retry={() => setStreamRetry((value) => value + 1)} />}{screen === 'tracking' && !order && <main className="shell page"><div className="loading-card"><span /><h2>Загружаем заказ</h2></div></main>}<footer className="footer shell"><strong>LOOCH</strong><span>Еда рядом, когда она нужна.</span><small>Web-клиент платформы доставки</small></footer></>
+  const completeAuth = (nextSession: AuthSession) => {
+    setSession(nextSession)
+    const requested = new URLSearchParams(window.location.search).get('return')
+    navigate(requested?.startsWith('/') && !requested.startsWith('//') ? requested : '/profile')
+  }
+  const logout = () => { saveSession(null); setSession(null); setOrders([]); setOrder(null); navigate('/') }
+
+  return <><Header screen={screen} session={session} go={go} />{screen === 'catalog' && <Catalog restaurants={restaurants} choose={choose} loading={loading.catalog} error={errors.catalog} retry={() => setCatalogRetry((value) => value + 1)} />}{screen === 'menu' && <MenuPage menu={menu} cart={cart} setCart={setCart} checkout={() => go('checkout')} loading={loading.menu} error={errors.menu} retry={() => void loadMenu(selected)} />}{screen === 'checkout' && <Checkout quote={quote} submit={submit} busy={busy} error={errors.submit} quoteLoading={loading.quote} quoteError={errors.quote} retryQuote={() => setQuoteRetry((value) => value + 1)} />}{screen === 'auth' && <AuthPage complete={completeAuth} />}{screen === 'profile' && session && <ProfilePage session={session} orders={orders} openOrders={() => go('orders')} logout={logout} />}{screen === 'orders' && session && <OrdersPage orders={orders} loading={loading.orders} error={errors.orders} retry={() => setOrdersRetry((value) => value + 1)} open={(item) => { setOrder(item); navigate(`/orders/${item.id}`) }} />}{screen === 'tracking' && session && order && <Tracking order={order} streamError={errors.stream} retry={() => setStreamRetry((value) => value + 1)} />}{screen === 'tracking' && session && !order && <main className="shell page"><div className="loading-card"><span /><h2>Загружаем заказ</h2></div></main>}<footer className="footer shell"><strong>LOOCH</strong><span>Еда рядом, когда она нужна.</span><small>Web-клиент платформы доставки</small></footer></>
 }

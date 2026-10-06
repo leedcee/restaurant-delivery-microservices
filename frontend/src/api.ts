@@ -1,6 +1,5 @@
 import type { Cart, Menu, Order, OrderQuote, Restaurant } from './types'
-
-const USER_ID = '55555555-5555-5555-5555-555555555555'
+import { authorizedFetch } from './auth'
 
 async function json<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -28,11 +27,10 @@ function draft(restaurantId: string, cart: Cart, deliveryAddress?: string) {
 }
 
 export async function createOrder(restaurantId: string, cart: Cart, deliveryAddress: string): Promise<Order> {
-  const response = await fetch('/api/v1/orders', {
+  const response = await authorizedFetch('/api/v1/orders', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-User-ID': USER_ID,
       'Idempotency-Key': crypto.randomUUID(),
     },
     body: JSON.stringify(draft(restaurantId, cart, deliveryAddress)),
@@ -43,23 +41,23 @@ export async function createOrder(restaurantId: string, cart: Cart, deliveryAddr
 export async function quoteOrder(restaurantId: string, cart: Cart): Promise<OrderQuote> {
   const response = await fetch('/api/v1/orders/quote', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-User-ID': USER_ID },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(draft(restaurantId, cart)),
   })
   return json<OrderQuote>(response)
 }
 
 export async function fetchOrders(): Promise<Order[]> {
-  const response = await fetch('/api/v1/orders', { headers: { 'X-User-ID': USER_ID } })
+  const response = await authorizedFetch('/api/v1/orders')
   return (await json<{ items: Order[] }>(response)).items
 }
 
 export async function fetchOrder(orderId: string): Promise<Order> {
-  return json<Order>(await fetch(`/api/v1/orders/${orderId}`, { headers: { 'X-User-ID': USER_ID } }))
+  return json<Order>(await authorizedFetch(`/api/v1/orders/${orderId}`))
 }
 
 export async function streamOrder(orderId: string, onOrder: (order: Order) => void, signal: AbortSignal): Promise<void> {
-  const response = await fetch(`/api/v1/orders/${orderId}/events`, { headers: { 'X-User-ID': USER_ID }, signal })
+  const response = await authorizedFetch(`/api/v1/orders/${orderId}/events`, { signal })
   if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`)
   const reader = response.body.getReader()
   const decoder = new TextDecoder()

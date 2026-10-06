@@ -144,7 +144,7 @@ Vite проксирует `/api` на `http://localhost:8080`. Если backend 
 - [исходники CJM](docs/cjm/).
 - [план развития проекта](docs/roadmap.md).
 
-Identity API версии `0.3.0` включает `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh` и `GET /api/v1/auth/me`. До завершения миграции web-клиента customer endpoints временно сохраняют совместимость с доверенным заголовком `X-User-ID`.
+Identity API версии `0.3.0` включает `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh` и `GET /api/v1/auth/me`. Web-клиент использует Bearer access token, автоматически ротирует refresh token, защищает профиль и историю заказов. Customer endpoints временно сохраняют совместимость с доверенным заголовком `X-User-ID` для старых интеграционных сценариев.
 
 ## Разработка и тесты
 
@@ -162,7 +162,7 @@ docker compose down
 
 Backend E2E-тест проверяет полный путь заказа, серверный расчёт доставки, историю, идемпотентность, негативные сценарии, retry outbox и защиту от конкурентного списания последней позиции.
 
-Playwright проходит пользовательский сценарий в desktop- и mobile-viewport: выбор ресторана, добавление блюда, восстановление корзины, quote, оформление заказа и получение финального статуса через SSE. Эти же проверки запускаются в GitHub Actions.
+Playwright проходит пользовательские сценарии в desktop- и mobile-viewport: регистрацию и профиль, защиту приватных маршрутов, выбор ресторана, восстановление корзины, quote, оформление заказа и получение финального статуса через SSE. Эти же проверки запускаются в GitHub Actions.
 
 ## Границы текущей версии
 
