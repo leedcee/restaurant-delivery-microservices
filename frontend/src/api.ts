@@ -1,4 +1,4 @@
-import type { Cart, Menu, Order, OrderQuote, Restaurant } from './types'
+import type { Address, Cart, Menu, Order, OrderQuote, Restaurant } from './types'
 import { authorizedFetch } from './auth'
 
 async function json<T>(response: Response): Promise<T> {
@@ -54,6 +54,23 @@ export async function fetchOrders(): Promise<Order[]> {
 
 export async function fetchOrder(orderId: string): Promise<Order> {
   return json<Order>(await authorizedFetch(`/api/v1/orders/${orderId}`))
+}
+
+export async function fetchAddresses(): Promise<Address[]> {
+  return (await json<{ items: Address[] }>(await authorizedFetch('/api/v1/addresses'))).items
+}
+
+export async function createAddress(input: { label: string; address: string; isDefault?: boolean }): Promise<Address> {
+  return json<Address>(await authorizedFetch('/api/v1/addresses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }))
+}
+
+export async function updateAddress(id: string, input: { label?: string; address?: string; isDefault?: boolean }): Promise<Address> {
+  return json<Address>(await authorizedFetch(`/api/v1/addresses/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }))
+}
+
+export async function deleteAddress(id: string): Promise<void> {
+  const response = await authorizedFetch(`/api/v1/addresses/${id}`, { method: 'DELETE' })
+  if (!response.ok) await json(response)
 }
 
 export async function streamOrder(orderId: string, onOrder: (order: Order) => void, signal: AbortSignal): Promise<void> {

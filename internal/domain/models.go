@@ -141,3 +141,13 @@ type AuthSession struct {
 	RefreshToken string `json:"refreshToken"`
 	ExpiresIn    int64  `json:"expiresIn"`
 }
+
+type Address struct {
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"userId"`
+	Label     string    `json:"label"`
+	Address   string    `json:"address"`
+	IsDefault bool      `json:"isDefault"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}

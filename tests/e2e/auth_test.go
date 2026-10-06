@@ -46,3 +46,43 @@ func TestCustomerIdentityJourney(t *testing.T) {
 		t.Fatalf("reused refresh token returned %d, want 401", status)
 	}
 }
+
+func TestCustomerAddressJourney(t *testing.T) {
+	client := &http.Client{}
+	var session domain.AuthSession
+	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/auth/register", map[string]string{
+		"email": "address-" + uuid.NewString() + "@example.test", "password": "strong-password", "name": "Address Customer",
+	}, nil, http.StatusCreated, &session)
+	headers := map[string]string{"Authorization": "Bearer " + session.AccessToken}
+
+	var home domain.Address
+	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/addresses", map[string]any{
+		"label": "Дом", "address": "Самара, Московское шоссе, 15", "isDefault": false,
+	}, headers, http.StatusCreated, &home)
+	if !home.IsDefault {
+		t.Fatal("first address must become default")
+	}
+
+	var work domain.Address
+	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/addresses", map[string]any{
+		"label": "Работа", "address": "Самара, улица Молодогвардейская, 151", "isDefault": false,
+	}, headers, http.StatusCreated, &work)
+	doJSON(t, client, http.MethodPatch, baseURL+"/api/v1/addresses/"+work.ID.String(), map[string]any{
+		"isDefault": true,
+	}, headers, http.StatusOK, &work)
+	if !work.IsDefault {
+		t.Fatal("updated address must become default")
+	}
+
+	var list struct{ Items []domain.Address `json:"items"` }
+	doJSON(t, client, http.MethodGet, baseURL+"/api/v1/addresses", nil, headers, http.StatusOK, &list)
+	if len(list.Items) != 2 || list.Items[0].ID != work.ID || !list.Items[0].IsDefault {
+		t.Fatalf("unexpected address list: %+v", list.Items)
+	}
+
+	doJSON(t, client, http.MethodDelete, baseURL+"/api/v1/addresses/"+work.ID.String(), nil, headers, http.StatusNoContent, nil)
+	doJSON(t, client, http.MethodGet, baseURL+"/api/v1/addresses", nil, headers, http.StatusOK, &list)
+	if len(list.Items) != 1 || list.Items[0].ID != home.ID || !list.Items[0].IsDefault {
+		t.Fatalf("remaining address must be promoted to default: %+v", list.Items)
+	}
+}

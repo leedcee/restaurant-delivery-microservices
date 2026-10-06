@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Restaurant Delivery Platform API
-  version: 0.3.0
+  version: 0.4.0
   description: API for customers and partner restaurants in the delivery platform.
 servers:
   - url: http://localhost:8080
@@ -146,6 +146,89 @@ paths:
                 $ref: '#/components/schemas/User'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/v1/addresses:
+    get:
+      summary: List saved delivery addresses
+      tags: [Customer]
+      security:
+        - bearerAuth: []
+      operationId: listAddresses
+      responses:
+        '200':
+          description: Saved addresses, default first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Address'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      summary: Save a delivery address
+      tags: [Customer]
+      security:
+        - bearerAuth: []
+      operationId: createAddress
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddressInput'
+      responses:
+        '201':
+          description: Address created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Address'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/addresses/{addressId}:
+    parameters:
+      - name: addressId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      summary: Update a saved delivery address
+      tags: [Customer]
+      security:
+        - bearerAuth: []
+      operationId: updateAddress
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddressPatch'
+      responses:
+        '200':
+          description: Address updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Address'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      summary: Delete a saved delivery address
+      tags: [Customer]
+      security:
+        - bearerAuth: []
+      operationId: deleteAddress
+      responses:
+        '204':
+          description: Address deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/orders/quote:
     post:
       summary: Calculate and validate an order draft
@@ -173,8 +256,8 @@ paths:
       summary: List orders of the current user
       tags: [Customer]
       operationId: listUserOrders
-      parameters:
-        - $ref: '#/components/parameters/UserId'
+      security:
+        - bearerAuth: []
       responses:
         '200':
           description: Orders sorted from newest to oldest
@@ -192,8 +275,9 @@ paths:
       summary: Create an order idempotently
       tags: [Customer]
       operationId: createOrder
+      security:
+        - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/UserId'
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
@@ -231,8 +315,9 @@ paths:
       summary: Get the current order state
       tags: [Customer]
       operationId: getOrder
+      security:
+        - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/UserId'
         - name: orderId
           in: path
           required: true
@@ -253,8 +338,9 @@ paths:
       summary: Stream order state changes with Server-Sent Events
       tags: [Customer]
       operationId: streamOrder
+      security:
+        - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/UserId'
         - name: orderId
           in: path
           required: true
@@ -368,14 +454,6 @@ components:
       schema:
         type: string
         format: uuid
-    UserId:
-      name: X-User-ID
-      in: header
-      required: true
-      description: Trusted user identifier supplied by the upstream platform in the MVP.
-      schema:
-        type: string
-        format: uuid
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -463,6 +541,52 @@ components:
           type: integer
           format: int64
           description: Access-token lifetime in seconds
+    AddressInput:
+      type: object
+      required: [label, address]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 50
+        address:
+          type: string
+          minLength: 3
+          maxLength: 500
+        isDefault:
+          type: boolean
+          default: false
+    AddressPatch:
+      type: object
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 50
+        address:
+          type: string
+          minLength: 3
+          maxLength: 500
+        isDefault:
+          type: boolean
+    Address:
+      allOf:
+        - $ref: '#/components/schemas/AddressInput'
+        - type: object
+          required: [id, userId, label, address, isDefault, createdAt, updatedAt]
+          properties:
+            id:
+              type: string
+              format: uuid
+            userId:
+              type: string
+              format: uuid
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
     Restaurant:
       type: object
       required: [id, name, description, isOpen]

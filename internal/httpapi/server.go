@@ -47,6 +47,10 @@ func New(db *pgxpool.Pool, logger *slog.Logger, jwtSecret string) http.Handler {
 	router.Post("/api/v1/auth/login", server.login)
 	router.Post("/api/v1/auth/refresh", server.refresh)
 	router.Get("/api/v1/auth/me", server.me)
+	router.Get("/api/v1/addresses", server.listAddresses)
+	router.Post("/api/v1/addresses", server.createAddress)
+	router.Patch("/api/v1/addresses/{addressID}", server.updateAddress)
+	router.Delete("/api/v1/addresses/{addressID}", server.deleteAddress)
 	router.Post("/api/v1/orders/quote", server.quoteOrder)
 	router.Get("/api/v1/orders", server.listUserOrders)
 	router.Post("/api/v1/orders", server.createOrder)
@@ -158,6 +162,81 @@ func (s *server) me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, user)
+}
+
+func (s *server) listAddresses(w http.ResponseWriter, r *http.Request) {
+	uid, err := s.userID(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	items, err := s.identity.ListAddresses(r.Context(), uid)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *server) createAddress(w http.ResponseWriter, r *http.Request) {
+	uid, err := s.userID(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	var input identity.AddressInput
+	if err = decodeJSON(r, &input); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	item, err := s.identity.CreateAddress(r.Context(), uid, input)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *server) updateAddress(w http.ResponseWriter, r *http.Request) {
+	uid, err := s.userID(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	addressID, err := uuid.Parse(chi.URLParam(r, "addressID"))
+	if err != nil {
+		s.fail(w, r, fmt.Errorf("%w: invalid address id", domain.ErrValidation))
+		return
+	}
+	var patch identity.AddressPatch
+	if err = decodeJSON(r, &patch); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	item, err := s.identity.UpdateAddress(r.Context(), uid, addressID, patch)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *server) deleteAddress(w http.ResponseWriter, r *http.Request) {
+	uid, err := s.userID(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	addressID, err := uuid.Parse(chi.URLParam(r, "addressID"))
+	if err != nil {
+		s.fail(w, r, fmt.Errorf("%w: invalid address id", domain.ErrValidation))
+		return
+	}
+	if err = s.identity.DeleteAddress(r.Context(), uid, addressID); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *server) quoteOrder(w http.ResponseWriter, r *http.Request) {
@@ -407,7 +486,7 @@ func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Request-ID", middleware.GetReqID(r.Context()))
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-User-ID, X-API-Key, Idempotency-Key")
 		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
 		if r.Method == http.MethodOptions {

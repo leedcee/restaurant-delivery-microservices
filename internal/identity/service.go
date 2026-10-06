@@ -45,6 +45,18 @@ type Login struct {
 	Password string `json:"password"`
 }
 
+type AddressInput struct {
+	Label     string `json:"label"`
+	Address   string `json:"address"`
+	IsDefault bool   `json:"isDefault"`
+}
+
+type AddressPatch struct {
+	Label     *string `json:"label"`
+	Address   *string `json:"address"`
+	IsDefault *bool   `json:"isDefault"`
+}
+
 type tokenClaims struct {
 	Subject   string `json:"sub"`
 	IssuedAt  int64  `json:"iat"`
@@ -172,6 +184,142 @@ func (s *Service) GetUser(ctx context.Context, userID uuid.UUID) (domain.User, e
 		return domain.User{}, fmt.Errorf("get user: %w", err)
 	}
 	return user, nil
+}
+
+func (s *Service) ListAddresses(ctx context.Context, userID uuid.UUID) ([]domain.Address, error) {
+	rows, err := s.db.Query(ctx, `SELECT id, user_id, label, address, is_default, created_at, updated_at
+		FROM user_addresses WHERE user_id = $1 ORDER BY is_default DESC, created_at`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list addresses: %w", err)
+	}
+	defer rows.Close()
+	items := make([]domain.Address, 0)
+	for rows.Next() {
+		var item domain.Address
+		if err := rows.Scan(&item.ID, &item.UserID, &item.Label, &item.Address, &item.IsDefault, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan address: %w", err)
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Service) CreateAddress(ctx context.Context, userID uuid.UUID, input AddressInput) (domain.Address, error) {
+	input.Label, input.Address = strings.TrimSpace(input.Label), strings.TrimSpace(input.Address)
+	if err := validateAddress(input.Label, input.Address); err != nil {
+		return domain.Address{}, err
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return domain.Address{}, fmt.Errorf("begin address: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = tx.Exec(ctx, `SELECT id FROM users WHERE id = $1 FOR UPDATE`, userID); err != nil {
+		return domain.Address{}, fmt.Errorf("lock user: %w", err)
+	}
+	var count int
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM user_addresses WHERE user_id = $1`, userID).Scan(&count); err != nil {
+		return domain.Address{}, fmt.Errorf("count addresses: %w", err)
+	}
+	input.IsDefault = input.IsDefault || count == 0
+	if input.IsDefault {
+		if _, err = tx.Exec(ctx, `UPDATE user_addresses SET is_default = false, updated_at = now() WHERE user_id = $1 AND is_default`, userID); err != nil {
+			return domain.Address{}, fmt.Errorf("clear default address: %w", err)
+		}
+	}
+	var item domain.Address
+	err = tx.QueryRow(ctx, `INSERT INTO user_addresses (user_id, label, address, is_default) VALUES ($1, $2, $3, $4)
+		RETURNING id, user_id, label, address, is_default, created_at, updated_at`, userID, input.Label, input.Address, input.IsDefault).
+		Scan(&item.ID, &item.UserID, &item.Label, &item.Address, &item.IsDefault, &item.CreatedAt, &item.UpdatedAt)
+	if err != nil {
+		return domain.Address{}, fmt.Errorf("create address: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.Address{}, fmt.Errorf("commit address: %w", err)
+	}
+	return item, nil
+}
+
+func (s *Service) UpdateAddress(ctx context.Context, userID, addressID uuid.UUID, patch AddressPatch) (domain.Address, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return domain.Address{}, fmt.Errorf("begin address update: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = tx.Exec(ctx, `SELECT id FROM users WHERE id = $1 FOR UPDATE`, userID); err != nil {
+		return domain.Address{}, fmt.Errorf("lock user: %w", err)
+	}
+	var item domain.Address
+	err = tx.QueryRow(ctx, `SELECT id, user_id, label, address, is_default, created_at, updated_at FROM user_addresses WHERE id = $1 AND user_id = $2 FOR UPDATE`, addressID, userID).
+		Scan(&item.ID, &item.UserID, &item.Label, &item.Address, &item.IsDefault, &item.CreatedAt, &item.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Address{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Address{}, fmt.Errorf("load address: %w", err)
+	}
+	if patch.Label != nil {
+		item.Label = strings.TrimSpace(*patch.Label)
+	}
+	if patch.Address != nil {
+		item.Address = strings.TrimSpace(*patch.Address)
+	}
+	if patch.IsDefault != nil {
+		item.IsDefault = *patch.IsDefault
+	}
+	if err = validateAddress(item.Label, item.Address); err != nil {
+		return domain.Address{}, err
+	}
+	if item.IsDefault {
+		if _, err = tx.Exec(ctx, `UPDATE user_addresses SET is_default = false, updated_at = now() WHERE user_id = $1 AND id <> $2 AND is_default`, userID, addressID); err != nil {
+			return domain.Address{}, fmt.Errorf("clear default address: %w", err)
+		}
+	}
+	err = tx.QueryRow(ctx, `UPDATE user_addresses SET label = $3, address = $4, is_default = $5, updated_at = now() WHERE id = $1 AND user_id = $2
+		RETURNING id, user_id, label, address, is_default, created_at, updated_at`, addressID, userID, item.Label, item.Address, item.IsDefault).
+		Scan(&item.ID, &item.UserID, &item.Label, &item.Address, &item.IsDefault, &item.CreatedAt, &item.UpdatedAt)
+	if err != nil {
+		return domain.Address{}, fmt.Errorf("update address: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.Address{}, fmt.Errorf("commit address update: %w", err)
+	}
+	return item, nil
+}
+
+func (s *Service) DeleteAddress(ctx context.Context, userID, addressID uuid.UUID) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin address delete: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = tx.Exec(ctx, `SELECT id FROM users WHERE id = $1 FOR UPDATE`, userID); err != nil {
+		return fmt.Errorf("lock user: %w", err)
+	}
+	var wasDefault bool
+	err = tx.QueryRow(ctx, `DELETE FROM user_addresses WHERE id = $1 AND user_id = $2 RETURNING is_default`, addressID, userID).Scan(&wasDefault)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("delete address: %w", err)
+	}
+	if wasDefault {
+		if _, err = tx.Exec(ctx, `UPDATE user_addresses SET is_default = true, updated_at = now() WHERE id = (SELECT id FROM user_addresses WHERE user_id = $1 ORDER BY created_at LIMIT 1)`, userID); err != nil {
+			return fmt.Errorf("promote default address: %w", err)
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit address delete: %w", err)
+	}
+	return nil
+}
+
+func validateAddress(label, address string) error {
+	if len(label) < 1 || len(label) > 50 || len(address) < 3 || len(address) > 500 {
+		return fmt.Errorf("%w: label must be 1-50 characters and address 3-500 characters", domain.ErrValidation)
+	}
+	return nil
 }
 
 func (s *Service) issueSession(ctx context.Context, user domain.User) (domain.AuthSession, error) {
