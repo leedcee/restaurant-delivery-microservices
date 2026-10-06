@@ -58,17 +58,16 @@ func TestOrderJourney(t *testing.T) {
 		t.Fatalf("replace menu left %d active products, want 1", activeProducts)
 	}
 
-	userID := uuid.New().String()
+	accessToken := registerAccessToken(t, client)
 	key := "e2e-" + uuid.NewString()
 	draft := domain.OrderDraft{
 		RestaurantID:    uuid.MustParse("11111111-1111-1111-1111-111111111111"),
 		DeliveryAddress: "Самара, E2E",
 		Items:           []domain.DraftItem{{ProductID: productID, Quantity: 2}},
 	}
-	headers := map[string]string{"X-User-ID": userID, "Idempotency-Key": key}
+	headers := map[string]string{"Authorization": "Bearer " + accessToken, "Idempotency-Key": key}
 	var quote domain.OrderQuote
-	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/orders/quote", draft,
-		map[string]string{"X-User-ID": userID}, http.StatusOK, &quote)
+	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/orders/quote", draft, nil, http.StatusOK, &quote)
 	if quote.DeliveryFeeMinor != 13000 || quote.TotalMinor != 37600 {
 		t.Fatalf("unexpected quote: delivery=%d total=%d", quote.DeliveryFeeMinor, quote.TotalMinor)
 	}
@@ -87,13 +86,13 @@ func TestOrderJourney(t *testing.T) {
 	for time.Now().Before(deadline) {
 		var current domain.Order
 		doJSON(t, client, http.MethodGet, baseURL+"/api/v1/orders/"+created.ID.String(), nil,
-			map[string]string{"X-User-ID": userID}, http.StatusOK, &current)
+			map[string]string{"Authorization": "Bearer " + accessToken}, http.StatusOK, &current)
 		if current.Status == domain.OrderDelivered {
 			var history struct {
 				Items []domain.Order `json:"items"`
 			}
 			doJSON(t, client, http.MethodGet, baseURL+"/api/v1/orders", nil,
-				map[string]string{"X-User-ID": userID}, http.StatusOK, &history)
+				map[string]string{"Authorization": "Bearer " + accessToken}, http.StatusOK, &history)
 			if len(history.Items) != 1 || history.Items[0].ID != created.ID {
 				t.Fatalf("order history does not contain created order: %+v", history.Items)
 			}
@@ -102,6 +101,15 @@ func TestOrderJourney(t *testing.T) {
 		time.Sleep(250 * time.Millisecond)
 	}
 	t.Fatal("restaurant did not complete the order before timeout")
+}
+
+func registerAccessToken(t *testing.T, client *http.Client) string {
+	t.Helper()
+	var session domain.AuthSession
+	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/auth/register", map[string]string{
+		"email": "test-" + uuid.NewString() + "@example.test", "password": "strong-password", "name": "E2E Customer",
+	}, nil, http.StatusCreated, &session)
+	return session.AccessToken
 }
 
 func doJSON(

@@ -439,12 +439,7 @@ func (s *server) userID(r *http.Request) (uuid.UUID, error) {
 	if strings.HasPrefix(strings.ToLower(authorization), "bearer ") {
 		return s.identity.AuthenticateAccess(strings.TrimSpace(authorization[7:]))
 	}
-	// Compatibility path for the current trusted-gateway and E2E setup.
-	id, err := uuid.Parse(r.Header.Get("X-User-ID"))
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("%w: bearer token is required", domain.ErrUnauthorized)
-	}
-	return id, nil
+	return uuid.Nil, fmt.Errorf("%w: bearer token is required", domain.ErrUnauthorized)
 }
 
 func decodeJSON(r *http.Request, target any) error {
@@ -487,7 +482,7 @@ func cors(next http.Handler) http.Handler {
 		w.Header().Set("X-Request-ID", middleware.GetReqID(r.Context()))
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-User-ID, X-API-Key, Idempotency-Key")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key, Idempotency-Key")
 		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

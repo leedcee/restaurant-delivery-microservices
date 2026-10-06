@@ -39,14 +39,21 @@ func TestNegativeAndReliabilityScenarios(t *testing.T) {
 		}
 	})
 
+	t.Run("legacy user header does not authenticate customer", func(t *testing.T) {
+		status, body := requestJSON(t.Context(), client, http.MethodGet, baseURL+"/api/v1/orders", nil,
+			map[string]string{"X-User-ID": uuid.NewString()})
+		if status != http.StatusUnauthorized {
+			t.Fatalf("got %d, want 401: %s", status, body)
+		}
+	})
+
 	t.Run("closed restaurant rejects quote", func(t *testing.T) {
 		productID := publishSingleProduct(t, client, "closed", 2)
 		setRestaurantOpen(t, db, false)
 		t.Cleanup(func() { setRestaurantOpen(t, db, true) })
 
 		draft := newDraft(productID, 1)
-		status, body := requestJSON(t.Context(), client, http.MethodPost, baseURL+"/api/v1/orders/quote", draft,
-			map[string]string{"X-User-ID": uuid.NewString()})
+		status, body := requestJSON(t.Context(), client, http.MethodPost, baseURL+"/api/v1/orders/quote", draft, nil)
 		if status != http.StatusConflict {
 			t.Fatalf("got %d, want 409: %s", status, body)
 		}
@@ -55,7 +62,7 @@ func TestNegativeAndReliabilityScenarios(t *testing.T) {
 	t.Run("unavailable product rejects order", func(t *testing.T) {
 		productID := publishSingleProduct(t, client, "out-of-stock", 1)
 		draft := newDraft(productID, 2)
-		status, body := createOrderRequest(t.Context(), client, draft)
+		status, body := createOrderRequest(t.Context(), client, draft, registerAccessToken(t, client))
 		if status != http.StatusConflict {
 			t.Fatalf("got %d, want 409: %s", status, body)
 		}
@@ -108,6 +115,7 @@ func TestNegativeAndReliabilityScenarios(t *testing.T) {
 	t.Run("concurrent orders cannot oversell last item", func(t *testing.T) {
 		productID := publishSingleProduct(t, client, "concurrency", 1)
 		draft := newDraft(productID, 1)
+		tokens := []string{registerAccessToken(t, client), registerAccessToken(t, client)}
 		statuses := make([]int, 2)
 		bodies := make([]string, 2)
 		var wg sync.WaitGroup
@@ -115,7 +123,7 @@ func TestNegativeAndReliabilityScenarios(t *testing.T) {
 			wg.Add(1)
 			go func(index int) {
 				defer wg.Done()
-				statuses[index], bodies[index] = createOrderRequest(t.Context(), client, draft)
+				statuses[index], bodies[index] = createOrderRequest(t.Context(), client, draft, tokens[index])
 			}(i)
 		}
 		wg.Wait()
@@ -180,7 +188,7 @@ func newDraft(productID uuid.UUID, quantity int) domain.OrderDraft {
 
 func createOrder(t *testing.T, client *http.Client, draft domain.OrderDraft) domain.Order {
 	t.Helper()
-	status, body := createOrderRequest(t.Context(), client, draft)
+	status, body := createOrderRequest(t.Context(), client, draft, registerAccessToken(t, client))
 	if status != http.StatusCreated {
 		t.Fatalf("create order returned %d, want 201: %s", status, body)
 	}
@@ -191,9 +199,9 @@ func createOrder(t *testing.T, client *http.Client, draft domain.OrderDraft) dom
 	return order
 }
 
-func createOrderRequest(ctx context.Context, client *http.Client, draft domain.OrderDraft) (int, string) {
+func createOrderRequest(ctx context.Context, client *http.Client, draft domain.OrderDraft, accessToken string) (int, string) {
 	return requestJSON(ctx, client, http.MethodPost, baseURL+"/api/v1/orders", draft,
-		map[string]string{"X-User-ID": uuid.NewString(), "Idempotency-Key": "e2e-" + uuid.NewString()})
+		map[string]string{"Authorization": "Bearer " + accessToken, "Idempotency-Key": "e2e-" + uuid.NewString()})
 }
 
 func requestJSON(ctx context.Context, client *http.Client, method, url string, payload any, headers map[string]string) (int, string) {
