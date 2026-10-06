@@ -5,6 +5,7 @@ package e2e
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"restaurant-delivery-system/internal/domain"
 
@@ -47,6 +48,47 @@ func TestCustomerIdentityJourney(t *testing.T) {
 	}
 }
 
+func TestAuthenticatedOrderSurvivesRelogin(t *testing.T) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	productID := publishSingleProduct(t, client, "identity-history", 3)
+	email := "history-" + uuid.NewString() + "@example.test"
+	var registered domain.AuthSession
+	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/auth/register", map[string]string{
+		"email": email, "password": "strong-password", "name": "History Customer",
+	}, nil, http.StatusCreated, &registered)
+
+	draft := newDraft(productID, 1)
+	draft.DeliveryAddress = "Самара, история заказов"
+	var created domain.Order
+	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/orders", draft, map[string]string{
+		"Authorization":   "Bearer " + registered.AccessToken,
+		"Idempotency-Key": "identity-history-" + uuid.NewString(),
+	}, http.StatusCreated, &created)
+
+	var loggedIn domain.AuthSession
+	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/auth/login", map[string]string{
+		"email": email, "password": "strong-password",
+	}, nil, http.StatusOK, &loggedIn)
+	var history struct {
+		Items []domain.Order `json:"items"`
+	}
+	doJSON(t, client, http.MethodGet, baseURL+"/api/v1/orders", nil,
+		map[string]string{"Authorization": "Bearer " + loggedIn.AccessToken}, http.StatusOK, &history)
+	if len(history.Items) != 1 || history.Items[0].ID != created.ID {
+		t.Fatalf("relogged customer history does not contain created order: %+v", history.Items)
+	}
+
+	var stranger domain.AuthSession
+	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/auth/register", map[string]string{
+		"email": "stranger-" + uuid.NewString() + "@example.test", "password": "strong-password", "name": "Stranger",
+	}, nil, http.StatusCreated, &stranger)
+	doJSON(t, client, http.MethodGet, baseURL+"/api/v1/orders", nil,
+		map[string]string{"Authorization": "Bearer " + stranger.AccessToken}, http.StatusOK, &history)
+	if len(history.Items) != 0 {
+		t.Fatalf("stranger can see another customer's orders: %+v", history.Items)
+	}
+}
+
 func TestCustomerAddressJourney(t *testing.T) {
 	client := &http.Client{}
 	var session domain.AuthSession
@@ -74,7 +116,9 @@ func TestCustomerAddressJourney(t *testing.T) {
 		t.Fatal("updated address must become default")
 	}
 
-	var list struct{ Items []domain.Address `json:"items"` }
+	var list struct {
+		Items []domain.Address `json:"items"`
+	}
 	doJSON(t, client, http.MethodGet, baseURL+"/api/v1/addresses", nil, headers, http.StatusOK, &list)
 	if len(list.Items) != 2 || list.Items[0].ID != work.ID || !list.Items[0].IsDefault {
 		t.Fatalf("unexpected address list: %+v", list.Items)
