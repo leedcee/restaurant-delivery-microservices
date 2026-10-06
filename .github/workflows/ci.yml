@@ -19,6 +19,30 @@ jobs:
           cache: true
       - run: go test ./...
 
+  backend-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Start isolated E2E stack
+        run: docker compose -p restaurant-delivery-e2e -f docker-compose.e2e.yml up -d --build --wait
+      - name: Verify host-side readiness
+        run: curl --fail --retry 10 --retry-delay 1 --retry-connrefused http://127.0.0.1:18080/health/ready
+      - name: Run backend E2E
+        env:
+          E2E_BASE_URL: http://127.0.0.1:18080
+          E2E_DATABASE_URL: postgres://restaurant_test:restaurant_test@127.0.0.1:55432/restaurant_delivery_test?sslmode=disable
+        run: go test -count=1 -tags=e2e ./tests/e2e
+      - name: Print service logs
+        if: failure()
+        run: docker compose -p restaurant-delivery-e2e -f docker-compose.e2e.yml logs --no-color
+      - name: Stop isolated E2E stack
+        if: always()
+        run: docker compose -p restaurant-delivery-e2e -f docker-compose.e2e.yml down -v
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

@@ -130,7 +130,7 @@ func openTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	databaseURL := os.Getenv("E2E_DATABASE_URL")
 	if databaseURL == "" {
-		databaseURL = "postgres://restaurant:restaurant@localhost:5432/restaurant_delivery?sslmode=disable"
+		databaseURL = "postgres://restaurant_test:restaurant_test@127.0.0.1:55432/restaurant_delivery_test?sslmode=disable"
 	}
 	db, err := pgxpool.New(t.Context(), databaseURL)
 	if err != nil {

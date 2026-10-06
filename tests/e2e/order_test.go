@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
@@ -15,7 +16,14 @@ import (
 	"github.com/google/uuid"
 )
 
-const baseURL = "http://localhost:8080"
+var baseURL = envOrDefault("E2E_BASE_URL", "http://127.0.0.1:18080")
+
+func envOrDefault(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
 
 func TestOrderJourney(t *testing.T) {
 	client := &http.Client{Timeout: 5 * time.Second}
