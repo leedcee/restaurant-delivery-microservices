@@ -24,7 +24,7 @@ func NewQueries(db *pgxpool.Pool) *Queries {
 
 func (q *Queries) ListRestaurants(ctx context.Context) ([]domain.Restaurant, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT id, name, description, is_open
+		SELECT id, name, description, is_open, cuisine, eta, rating::text, art
 		FROM restaurants WHERE is_active = true ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list restaurants: %w", err)
@@ -33,7 +33,7 @@ func (q *Queries) ListRestaurants(ctx context.Context) ([]domain.Restaurant, err
 	items := make([]domain.Restaurant, 0)
 	for rows.Next() {
 		var item domain.Restaurant
-		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.IsOpen); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.IsOpen, &item.Cuisine, &item.ETA, &item.Rating, &item.Art); err != nil {
 			return nil, fmt.Errorf("scan restaurant: %w", err)
 		}
 		items = append(items, item)
@@ -44,9 +44,10 @@ func (q *Queries) ListRestaurants(ctx context.Context) ([]domain.Restaurant, err
 func (q *Queries) GetMenu(ctx context.Context, restaurantID uuid.UUID) (domain.Menu, error) {
 	var menu domain.Menu
 	err := q.db.QueryRow(ctx, `
-		SELECT id, name, description, is_open
+		SELECT id, name, description, is_open, cuisine, eta, rating::text, art
 		FROM restaurants WHERE id = $1 AND is_active = true`, restaurantID).
-		Scan(&menu.Restaurant.ID, &menu.Restaurant.Name, &menu.Restaurant.Description, &menu.Restaurant.IsOpen)
+		Scan(&menu.Restaurant.ID, &menu.Restaurant.Name, &menu.Restaurant.Description, &menu.Restaurant.IsOpen,
+			&menu.Restaurant.Cuisine, &menu.Restaurant.ETA, &menu.Restaurant.Rating, &menu.Restaurant.Art)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Menu{}, domain.ErrNotFound
 	}

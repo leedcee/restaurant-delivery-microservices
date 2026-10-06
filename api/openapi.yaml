@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Restaurant Delivery Platform API
-  version: 0.4.0
+  version: 0.5.0
   description: API for customers and partner restaurants in the delivery platform.
 servers:
   - url: http://localhost:8080
@@ -589,7 +589,7 @@ components:
               format: date-time
     Restaurant:
       type: object
-      required: [id, name, description, isOpen]
+      required: [id, name, description, isOpen, cuisine, eta, rating, art]
       properties:
         id:
           type: string
@@ -600,6 +600,16 @@ components:
           type: string
         isOpen:
           type: boolean
+        cuisine:
+          type: string
+        eta:
+          type: string
+        rating:
+          type: string
+          example: '4.8'
+        art:
+          type: string
+          enum: [bread, pasta, sushi]
     Product:
       type: object
       required: [id, name, description, priceMinor, currency, available, quantity]

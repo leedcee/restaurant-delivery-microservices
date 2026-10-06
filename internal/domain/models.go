@@ -20,6 +20,10 @@ type Restaurant struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	IsOpen      bool      `json:"isOpen"`
+	Cuisine     string    `json:"cuisine"`
+	ETA         string    `json:"eta"`
+	Rating      string    `json:"rating"`
+	Art         string    `json:"art"`
 }
 
 type Product struct {

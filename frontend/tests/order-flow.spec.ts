@@ -36,10 +36,10 @@ test.beforeEach(async ({ page }) => {
       return route.fulfill({ status: 204 })
     }
     if (path === '/api/v1/restaurants') {
-      return route.fulfill({ json: { items: [{ id: restaurantId, name: 'Тёплый хлеб', description: 'Завтраки', isOpen: true }] } })
+      return route.fulfill({ json: { items: [{ id: restaurantId, name: 'Тёплый хлеб', description: 'Завтраки', isOpen: true, cuisine: 'Европейская · Завтраки', eta: '25–35 минут', rating: '4.8', art: 'bread' }] } })
     }
     if (path.endsWith('/menu')) {
-      return route.fulfill({ json: { restaurant: { id: restaurantId, name: 'Тёплый хлеб', description: 'Завтраки', isOpen: true }, categories: [{ id: 'popular', name: 'Популярное', products: [{ id: productId, name: 'Паста с курицей', description: 'Фирменный соус', priceMinor: 49000, currency: 'RUB', available: true, quantity: 20 }] }] } })
+      return route.fulfill({ json: { restaurant: { id: restaurantId, name: 'Тёплый хлеб', description: 'Завтраки', isOpen: true, cuisine: 'Европейская · Завтраки', eta: '25–35 минут', rating: '4.8', art: 'bread' }, categories: [{ id: 'popular', name: 'Популярное', products: [{ id: productId, name: 'Паста с курицей', description: 'Фирменный соус', priceMinor: 49000, currency: 'RUB', available: true, quantity: 20 }] }] } })
     }
     if (path === '/api/v1/orders/quote') {
       return route.fulfill({ json: { restaurantId, items: [{ productId, name: 'Паста с курицей', quantity: 1, unitPriceMinor: 49000, totalMinor: 49000 }], deliveryFeeMinor: 13000, totalMinor: 62000, currency: 'RUB' } })
@@ -104,4 +104,12 @@ test('cart survives page reload', async ({ page }) => {
   await page.locator('.add-button').first().click()
   await page.reload()
   await expect(page.getByRole('button', { name: /Корзина.*1 блюдо/ })).toBeVisible()
+})
+
+test('catalog does not invent restaurants when API is unavailable', async ({ page }) => {
+  await page.unroute('**/api/v1/**')
+  await page.route('**/api/v1/restaurants', (route) => route.fulfill({ status: 503, json: { title: 'Unavailable' } }))
+  await page.goto('/')
+  await expect(page.getByText(/Сервис ресторанов не отвечает/)).toBeVisible()
+  await expect(page.getByRole('button', { name: /Тёплый хлеб/ })).toHaveCount(0)
 })

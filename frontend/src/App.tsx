@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createAddress, createOrder, deleteAddress, fetchAddresses, fetchMenu, fetchOrder, fetchOrders, fetchRestaurants, quoteOrder, streamOrder, updateAddress } from './api'
 import { getSession, login, register, saveSession, subscribeToSession } from './auth'
-import { demoMenu, demoRestaurants } from './mock'
 import type { Address, AuthSession, Cart, Menu, Order, OrderQuote, Product, Restaurant, Screen } from './types'
 
 const money = (minor: number) => `${new Intl.NumberFormat('ru-RU').format(minor / 100)} ₽`
@@ -49,7 +48,7 @@ function Catalog({ restaurants, choose, loading, error, retry }: { restaurants: 
   const filtered = restaurants.filter((item) => `${item.name} ${item.cuisine}`.toLowerCase().includes(query.toLowerCase()))
   return <main className="shell page catalog-page">
     <section className="hero"><p className="eyebrow">Доставка из ресторанов рядом</p><h1>Что хочется сегодня?</h1><p>Собрали хорошие места и проверили, что у них есть в наличии прямо сейчас.</p><div className="search-row"><label className="search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Название или кухня" /></label><button className="button button--coral">Найти</button><button className="button button--outline">Фильтры <b>2</b></button></div></section>
-    {error && <Notice retry={retry}>Backend временно недоступен — показываем демонстрационный каталог.</Notice>}
+    {error && <Notice retry={retry}>{error}</Notice>}
     <div className="section-heading"><div><p className="eyebrow coral">Самара · Московское шоссе</p><h2>{loading ? 'Загружаем рестораны…' : 'Популярно рядом'}</h2></div><button className="text-link">Смотреть все →</button></div>
     <section className="restaurant-grid">{filtered.map((restaurant) => <button className="restaurant-card offset-card" key={restaurant.id} onClick={() => choose(restaurant)}><div className="restaurant-card__art"><FoodArt kind={restaurant.art} restaurant /><span className="rating">★ {restaurant.rating}</span></div><div className="restaurant-card__body"><h3>{restaurant.name}</h3><p>{restaurant.cuisine}</p><span className="eta">{restaurant.eta}</span><span className="card-arrow">→</span></div></button>)}</section>
     {!filtered.length && <div className="empty"><h3>Ничего не нашли</h3><p>Попробуйте изменить запрос.</p></div>}
@@ -69,7 +68,7 @@ function MenuPage({ menu, cart, setCart, checkout, loading, error, retry }: { me
   const total = allProducts.reduce((sum, product) => sum + product.priceMinor * (cart[product.id] ?? 0), 0)
   const update = (product: Product, delta: number) => setCart({ ...cart, [product.id]: Math.max(0, (cart[product.id] ?? 0) + delta) })
   if (loading) return <main className="shell page"><div className="loading-card"><span /><h2>Загружаем меню</h2><p>Проверяем цены и наличие блюд.</p></div></main>
-  return <main className="shell page menu-page"><button className="back" onClick={() => history.back()}>← Все рестораны</button>{error && <Notice retry={retry}>Не удалось получить актуальное меню — доступна демонстрационная версия.</Notice>}<div className="menu-title"><div><h1>{menu.restaurant.name}</h1><p>25–35 минут&nbsp; · &nbsp;рейтинг 4,8</p></div><span className="open-pill">Открыт до 22:00</span></div><div className="tabs" role="tablist">{menu.categories.map((item, index) => <button key={item.id} className={item.id === category ? 'active' : ''} onClick={() => setCategory(item.id)}>{index === 0 ? 'Популярное' : item.name}</button>)}</div><section className="product-grid">{products.map((product, index) => <article className="product-card offset-card" key={product.id}><div className="product-art"><FoodArt kind={product.art ?? ['round', 'square', 'triangle'][index % 3]} /></div><div className="product-body"><h3>{product.name}</h3><p>{product.description}</p><div><strong>{money(product.priceMinor)}</strong><Quantity value={cart[product.id] ?? 0} add={() => update(product, 1)} remove={() => update(product, -1)} /></div></div></article>)}{!products.length && <div className="empty"><h3>Здесь скоро появятся блюда</h3><p>Загляните в раздел «Популярное».</p></div>}</section>{count > 0 && <button className="cart-dock" onClick={checkout}><span>Корзина&nbsp; • &nbsp;{count} {count === 1 ? 'блюдо' : 'блюда'}</span><strong>{money(total)}</strong></button>}</main>
+  return <main className="shell page menu-page"><button className="back" onClick={() => history.back()}>← Все рестораны</button>{error && <Notice retry={retry}>{error}</Notice>}<div className="menu-title"><div><h1>{menu.restaurant.name}</h1><p>{menu.restaurant.eta}&nbsp; · &nbsp;рейтинг {menu.restaurant.rating}</p></div><span className="open-pill">{menu.restaurant.isOpen ? 'Открыт' : 'Закрыт'}</span></div><div className="tabs" role="tablist">{menu.categories.map((item) => <button key={item.id} className={item.id === category ? 'active' : ''} onClick={() => setCategory(item.id)}>{item.name}</button>)}</div><section className="product-grid">{products.map((product, index) => <article className="product-card offset-card" key={product.id}><div className="product-art"><FoodArt kind={product.art ?? ['round', 'square', 'triangle'][index % 3]} /></div><div className="product-body"><h3>{product.name}</h3><p>{product.description}</p><div><strong>{money(product.priceMinor)}</strong><Quantity value={cart[product.id] ?? 0} add={() => update(product, 1)} remove={() => update(product, -1)} /></div></div></article>)}{!products.length && <div className="empty"><h3>Меню пока пусто</h3><p>Ресторан ещё не опубликовал доступные блюда.</p></div>}</section>{count > 0 && <button className="cart-dock" onClick={checkout}><span>Корзина&nbsp; • &nbsp;{count} {count === 1 ? 'блюдо' : 'блюда'}</span><strong>{money(total)}</strong></button>}</main>
 }
 
 function Checkout({ quote, addresses, submit, busy, error, quoteLoading, quoteError, retryQuote }: { quote: OrderQuote | null; addresses: Address[]; submit: (address: string) => void; busy: boolean; error: string; quoteLoading: boolean; quoteError: string; retryQuote: () => void }) {
@@ -88,7 +87,7 @@ function OrdersPage({ orders, loading, error, retry, open }: { orders: Order[]; 
 
 function Tracking({ order, streamError, retry }: { order: Order; streamError: string; retry: () => void }) {
   const active = statusIndex[order.status] ?? 0
-  const shortId = order.id.startsWith('demo-') ? '18452' : order.id.slice(0, 5).toUpperCase()
+  const shortId = order.id.slice(0, 5).toUpperCase()
   return <main className="shell page tracking-page"><div className="tracking-heading"><div><p className="eyebrow coral">{statusLabel[order.status] ?? 'Заказ подтверждён'}</p><h1>Заказ № {shortId}</h1></div><span className="delivery-time">Доставим к 19:35</span></div>{streamError && <Notice retry={retry}>{streamError}</Notice>}<div className="status-track">{['Принят', 'Готовится', 'У курьера', 'Доставлен'].map((label, index) => <div className={index <= active ? 'done' : ''} key={label}><span>{index < active ? '✓' : ''}</span><b>{label}</b></div>)}</div><div className="tracking-layout"><div className="map-card"><div className="street-lines" /><svg viewBox="0 0 700 360" preserveAspectRatio="none" aria-label="Маршрут курьера"><polyline points="65,310 240,105 610,58" /><circle cx="65" cy="310" r="15" className="map-start" /><circle cx="610" cy="58" r="18" className="map-courier" /></svg><span className="map-label">Курьер Алексей</span></div><aside className="courier-card"><span className="courier-icon">А</span><div><h2>{order.status === 'delivered' ? 'Заказ доставлен' : `Курьер ${active >= 2 ? 'в пути' : 'скоро заберёт заказ'}`}</h2><p>Алексей&nbsp; · &nbsp;рейтинг 4,9</p></div><hr /><p className="muted">Адрес</p><strong>{order.deliveryAddress}</strong><p className="muted">Осталось примерно</p><b className="minutes">{order.status === 'delivered' ? 'Готово' : '12 минут'}</b><button className="button button--outline">Связаться с курьером</button></aside></div></main>
 }
 
@@ -121,9 +120,9 @@ export default function App() {
   const savedCart = useMemo(readSavedCart, [])
   const [screen, setScreen] = useState<Screen>(initialRoute.screen)
   const [routeId, setRouteId] = useState(initialRoute.id)
-  const [restaurants, setRestaurants] = useState(demoRestaurants)
-  const [selected, setSelected] = useState<Restaurant>(() => demoRestaurants.find((item) => item.id === savedCart.restaurantId) ?? demoRestaurants[0])
-  const [menu, setMenu] = useState<Menu>(() => demoMenu(selected))
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([])
+  const [selected, setSelected] = useState<Restaurant | null>(null)
+  const [menu, setMenu] = useState<Menu | null>(null)
   const [cart, setCart] = useState<Cart>(savedCart.cart)
   const [order, setOrder] = useState<Order | null>(null)
   const [orders, setOrders] = useState<Order[]>([])
@@ -147,7 +146,7 @@ export default function App() {
   }
   useEffect(() => { const listener = () => { const next = routeFromPath(); setScreen(next.screen); setRouteId(next.id) }; addEventListener('popstate', listener); return () => removeEventListener('popstate', listener) }, [])
   useEffect(() => subscribeToSession(() => setSession(getSession())), [])
-  useEffect(() => localStorage.setItem(CART_KEY, JSON.stringify({ restaurantId: selected.id, cart })), [selected.id, cart])
+  useEffect(() => localStorage.setItem(CART_KEY, JSON.stringify({ restaurantId: selected?.id, cart })), [selected?.id, cart])
 
   useEffect(() => {
     if (!session) { setAddresses([]); return }
@@ -163,26 +162,23 @@ export default function App() {
 
   useEffect(() => {
     setLoading((value) => ({ ...value, catalog: true })); setErrors((value) => ({ ...value, catalog: '' }))
-    fetchRestaurants().then((live) => { if (!live.length) return; const merged = demoRestaurants.map((item, index) => index === 0 ? { ...item, id: live[0].id, isOpen: live[0].isOpen } : item); setRestaurants(merged); setSelected((current) => current.id === demoRestaurants[0].id || current.id === live[0].id ? merged[0] : current) }).catch(() => setErrors((value) => ({ ...value, catalog: 'Сервис ресторанов не отвечает.' }))).finally(() => setLoading((value) => ({ ...value, catalog: false })))
+    fetchRestaurants().then((live) => { const restored = live.find((item) => item.id === savedCart.restaurantId); if (savedCart.restaurantId && !restored) setCart({}); setRestaurants(live); setSelected((current) => live.find((item) => item.id === current?.id) ?? restored ?? live[0] ?? null) }).catch(() => { setRestaurants([]); setErrors((value) => ({ ...value, catalog: 'Сервис ресторанов не отвечает. Повторите запрос, когда соединение восстановится.' })) }).finally(() => setLoading((value) => ({ ...value, catalog: false })))
   }, [catalogRetry])
 
   const loadMenu = useCallback(async (restaurant: Restaurant) => {
     setLoading((value) => ({ ...value, menu: true })); setErrors((value) => ({ ...value, menu: '' }))
-    if (restaurant.id !== restaurants[0].id) { setMenu(demoMenu(restaurant)); setLoading((value) => ({ ...value, menu: false })); return }
     try { const live = await fetchMenu(restaurant.id); let productIndex = 0; const categories = live.categories.map((item) => ({ ...item, products: item.products.map((product) => ({ ...product, art: ['round', 'square', 'triangle'][productIndex++ % 3] as Product['art'] })) })); setMenu({ ...live, restaurant: { ...restaurant, ...live.restaurant }, categories }) }
-    catch { setMenu(demoMenu(restaurant)); setErrors((value) => ({ ...value, menu: 'Актуальное меню недоступно.' })) }
+    catch { setMenu({ restaurant, categories: [] }); setErrors((value) => ({ ...value, menu: 'Актуальное меню недоступно. Попробуйте ещё раз.' })) }
     finally { setLoading((value) => ({ ...value, menu: false })) }
-  }, [restaurants])
+  }, [])
 
-  useEffect(() => { if (screen !== 'menu' || !routeId) return; const restaurant = restaurants.find((item) => item.id === routeId) ?? selected; setSelected(restaurant); void loadMenu(restaurant) }, [screen, routeId, restaurants, loadMenu])
-  useEffect(() => { if (screen === 'checkout') void loadMenu(restaurants.find((item) => item.id === selected.id) ?? selected) }, [screen, selected.id, restaurants, loadMenu])
+  useEffect(() => { if (screen !== 'menu' || !routeId || !restaurants.length) return; const restaurant = restaurants.find((item) => item.id === routeId); if (!restaurant) { navigate('/'); return }; setSelected(restaurant); void loadMenu(restaurant) }, [screen, routeId, restaurants, loadMenu, navigate])
+  useEffect(() => { if (screen === 'checkout' && selected) void loadMenu(selected) }, [screen, selected, loadMenu])
   useEffect(() => {
-    if (screen !== 'checkout' || !Object.values(cart).some(Boolean)) return
+    if (screen !== 'checkout' || !selected || !menu || !Object.values(cart).some(Boolean)) return
     setLoading((value) => ({ ...value, quote: true })); setErrors((value) => ({ ...value, quote: '' }))
-    const products = menu.categories.flatMap((item) => item.products); const isDemo = products.some((item) => item.id.startsWith('aaaaaaaa'))
-    if (isDemo) { const items = products.filter((item) => cart[item.id]).map((item) => ({ productId: item.id, name: item.name, quantity: cart[item.id], unitPriceMinor: item.priceMinor, totalMinor: item.priceMinor * cart[item.id] })); const deliveryFeeMinor = 13000; setQuote({ restaurantId: selected.id, items, deliveryFeeMinor, totalMinor: items.reduce((sum, item) => sum + item.totalMinor, deliveryFeeMinor), currency: 'RUB' }); setLoading((value) => ({ ...value, quote: false })); return }
     quoteOrder(selected.id, cart).then(setQuote).catch((reason) => { setQuote(null); setErrors((value) => ({ ...value, quote: reason instanceof Error ? reason.message : 'Не удалось рассчитать заказ.' })) }).finally(() => setLoading((value) => ({ ...value, quote: false })))
-  }, [screen, cart, menu, selected.id, quoteRetry])
+  }, [screen, cart, menu, selected, quoteRetry])
 
   useEffect(() => {
     if (screen !== 'orders' || !session) return
@@ -191,7 +187,7 @@ export default function App() {
   }, [screen, ordersRetry, order, session])
 
   useEffect(() => {
-    if (screen !== 'tracking' || !routeId || routeId.startsWith('demo-') || !session) return
+    if (screen !== 'tracking' || !routeId || !session) return
     const controller = new AbortController(); setErrors((value) => ({ ...value, stream: '' }))
     const connect = async () => {
       try {
@@ -205,11 +201,11 @@ export default function App() {
     return () => controller.abort()
   }, [screen, routeId, streamRetry, session])
 
-  const choose = (restaurant: Restaurant) => { if (selected.id !== restaurant.id) setCart({}); setSelected(restaurant); navigate(`/restaurants/${restaurant.id}`) }
+  const choose = (restaurant: Restaurant) => { if (selected?.id !== restaurant.id) setCart({}); setSelected(restaurant); navigate(`/restaurants/${restaurant.id}`) }
   const submit = async (address: string) => {
     if (!session) { navigate('/login?return=%2Fcheckout'); return }
     setBusy(true); setErrors((value) => ({ ...value, submit: '' }))
-    try { const products = menu.categories.flatMap((item) => item.products); const isDemo = products.some((item) => item.id.startsWith('aaaaaaaa')); const created: Order = isDemo ? { id: `demo-${Date.now()}`, status: 'delivering', deliveryAddress: address, currency: 'RUB', items: quote?.items ?? [], deliveryFeeMinor: quote?.deliveryFeeMinor ?? 13000, totalMinor: quote?.totalMinor ?? 0, createdAt: new Date().toISOString() } : await createOrder(selected.id, cart, address); setOrder(created); setOrders((items) => [created, ...items.filter((item) => item.id !== created.id)]); setCart({}); navigate(`/orders/${created.id}`) }
+    try { if (!selected || !menu) throw new Error('Ресторан или меню не загружены'); const created = await createOrder(selected.id, cart, address); setOrder(created); setOrders((items) => [created, ...items.filter((item) => item.id !== created.id)]); setCart({}); navigate(`/orders/${created.id}`) }
     catch (reason) { setErrors((value) => ({ ...value, submit: reason instanceof Error ? reason.message : 'Не удалось оформить заказ' })) }
     finally { setBusy(false) }
   }
@@ -236,5 +232,5 @@ export default function App() {
     catch (reason) { setAddressError(reason instanceof Error ? reason.message : 'Не удалось удалить адрес') }
   }
 
-  return <><Header screen={screen} session={session} go={go} />{screen === 'catalog' && <Catalog restaurants={restaurants} choose={choose} loading={loading.catalog} error={errors.catalog} retry={() => setCatalogRetry((value) => value + 1)} />}{screen === 'menu' && <MenuPage menu={menu} cart={cart} setCart={setCart} checkout={() => go('checkout')} loading={loading.menu} error={errors.menu} retry={() => void loadMenu(selected)} />}{screen === 'checkout' && <Checkout quote={quote} addresses={addresses} submit={submit} busy={busy} error={errors.submit} quoteLoading={loading.quote} quoteError={errors.quote} retryQuote={() => setQuoteRetry((value) => value + 1)} />}{screen === 'auth' && <AuthPage complete={completeAuth} />}{screen === 'profile' && session && <ProfilePage session={session} orders={orders} addresses={addresses} addressError={addressError} openOrders={() => go('orders')} addAddress={addAddress} makeDefault={makeDefault} removeAddress={removeAddress} logout={logout} />}{screen === 'orders' && session && <OrdersPage orders={orders} loading={loading.orders} error={errors.orders} retry={() => setOrdersRetry((value) => value + 1)} open={(item) => { setOrder(item); navigate(`/orders/${item.id}`) }} />}{screen === 'tracking' && session && order && <Tracking order={order} streamError={errors.stream} retry={() => setStreamRetry((value) => value + 1)} />}{screen === 'tracking' && session && !order && <main className="shell page"><div className="loading-card"><span /><h2>Загружаем заказ</h2></div></main>}<footer className="footer shell"><strong>LOOCH</strong><span>Еда рядом, когда она нужна.</span><small>Web-клиент платформы доставки</small></footer></>
+  return <><Header screen={screen} session={session} go={go} />{screen === 'catalog' && <Catalog restaurants={restaurants} choose={choose} loading={loading.catalog} error={errors.catalog} retry={() => setCatalogRetry((value) => value + 1)} />}{screen === 'menu' && menu && <MenuPage menu={menu} cart={cart} setCart={setCart} checkout={() => go('checkout')} loading={loading.menu} error={errors.menu} retry={() => selected && void loadMenu(selected)} />}{screen === 'menu' && !menu && <main className="shell page"><div className="loading-card"><span /><h2>Загружаем меню</h2></div></main>}{screen === 'checkout' && <Checkout quote={quote} addresses={addresses} submit={submit} busy={busy} error={errors.submit} quoteLoading={loading.quote} quoteError={errors.quote} retryQuote={() => setQuoteRetry((value) => value + 1)} />}{screen === 'auth' && <AuthPage complete={completeAuth} />}{screen === 'profile' && session && <ProfilePage session={session} orders={orders} addresses={addresses} addressError={addressError} openOrders={() => go('orders')} addAddress={addAddress} makeDefault={makeDefault} removeAddress={removeAddress} logout={logout} />}{screen === 'orders' && session && <OrdersPage orders={orders} loading={loading.orders} error={errors.orders} retry={() => setOrdersRetry((value) => value + 1)} open={(item) => { setOrder(item); navigate(`/orders/${item.id}`) }} />}{screen === 'tracking' && session && order && <Tracking order={order} streamError={errors.stream} retry={() => setStreamRetry((value) => value + 1)} />}{screen === 'tracking' && session && !order && <main className="shell page"><div className="loading-card"><span /><h2>Загружаем заказ</h2></div></main>}<footer className="footer shell"><strong>LOOCH</strong><span>Еда рядом, когда она нужна.</span><small>Web-клиент платформы доставки</small></footer></>
 }

@@ -1,0 +1,5 @@
+ALTER TABLE restaurants
+    DROP COLUMN IF EXISTS art,
+    DROP COLUMN IF EXISTS rating,
+    DROP COLUMN IF EXISTS eta,
+    DROP COLUMN IF EXISTS cuisine;
