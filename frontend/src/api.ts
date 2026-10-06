@@ -73,6 +73,19 @@ export async function deleteAddress(id: string): Promise<void> {
   if (!response.ok) await json(response)
 }
 
+export async function fetchPartnerOrders(apiKey: string): Promise<Order[]> {
+  const response = await fetch('/partner/v1/orders', { headers: { 'X-API-Key': apiKey } })
+  return (await json<{ items: Order[] }>(response)).items
+}
+
+export async function updatePartnerOrderStatus(apiKey: string, orderId: string, status: string, reason?: string): Promise<Order> {
+  return json<Order>(await fetch(`/partner/v1/orders/${orderId}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    body: JSON.stringify({ status, ...(reason ? { reason } : {}) }),
+  }))
+}
+
 export async function streamOrder(orderId: string, onOrder: (order: Order) => void, signal: AbortSignal): Promise<void> {
   const response = await authorizedFetch(`/api/v1/orders/${orderId}/events`, { signal })
   if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`)

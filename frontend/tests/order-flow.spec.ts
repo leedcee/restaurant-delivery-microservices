@@ -9,6 +9,7 @@ const session = { user, accessToken: 'access-token', refreshToken: 'refresh-toke
 
 test.beforeEach(async ({ page }) => {
   let addresses: Array<{ id: string; userId: string; label: string; address: string; isDefault: boolean; createdAt: string; updatedAt: string }> = []
+  let partnerOrder = { id: orderId, userId: user.id, restaurantId, status: 'pending', deliveryAddress: 'Самара, Московское шоссе, 15', items: [{ productId, name: 'Паста с курицей', quantity: 1, unitPriceMinor: 49000, totalMinor: 49000 }], deliveryFeeMinor: 13000, totalMinor: 62000, currency: 'RUB', createdAt: new Date().toISOString() }
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request()
     const path = new URL(request.url()).pathname
@@ -55,6 +56,18 @@ test.beforeEach(async ({ page }) => {
       return route.fulfill({ json: { id: orderId, status: 'pending', deliveryAddress: 'Самара, Московское шоссе, 15', items: [], deliveryFeeMinor: 13000, totalMinor: 62000, currency: 'RUB' } })
     }
     return route.fulfill({ json: { items: [] } })
+  })
+  await page.route('**/partner/v1/**', async (route) => {
+    const request = route.request()
+    if (request.headers()['x-api-key'] !== 'demo-secret') return route.fulfill({ status: 401, json: { title: 'Unauthorized' } })
+    const path = new URL(request.url()).pathname
+    if (path === '/partner/v1/orders' && request.method() === 'GET') return route.fulfill({ json: { items: [partnerOrder] } })
+    if (path === `/partner/v1/orders/${orderId}/status` && request.method() === 'PATCH') {
+      const input = request.postDataJSON() as { status: string }
+      partnerOrder = { ...partnerOrder, status: input.status }
+      return route.fulfill({ json: partnerOrder })
+    }
+    return route.fulfill({ status: 404, json: { title: 'Not found' } })
   })
 })
 
@@ -112,4 +125,15 @@ test('catalog does not invent restaurants when API is unavailable', async ({ pag
   await page.goto('/')
   await expect(page.getByText(/Сервис ресторанов не отвечает/)).toBeVisible()
   await expect(page.getByRole('button', { name: /Тёплый хлеб/ })).toHaveCount(0)
+})
+
+test('restaurant partner signs in and accepts an order', async ({ page }) => {
+  await page.goto('/partner')
+  await page.getByLabel('API-ключ').fill('demo-secret')
+  await page.getByRole('button', { name: 'Открыть очередь' }).click()
+  await expect(page).toHaveURL('/partner/orders')
+  await expect(page.getByRole('heading', { name: /Заказ №/ })).toBeVisible()
+  await page.getByRole('button', { name: 'Принять' }).click()
+  await expect(page.getByText('Принят', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Начать готовить' })).toBeVisible()
 })

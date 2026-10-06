@@ -1,4 +1,4 @@
-export type Screen = 'catalog' | 'menu' | 'checkout' | 'orders' | 'tracking' | 'auth' | 'profile'
+export type Screen = 'catalog' | 'menu' | 'checkout' | 'orders' | 'tracking' | 'auth' | 'profile' | 'partnerLogin' | 'partnerDashboard'
 
 export interface Restaurant {
   id: string
