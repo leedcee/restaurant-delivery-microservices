@@ -1,4 +1,4 @@
-export type Screen = 'catalog' | 'menu' | 'checkout' | 'orders' | 'tracking' | 'auth' | 'profile' | 'partnerLogin' | 'partnerDashboard'
+export type Screen = 'catalog' | 'menu' | 'checkout' | 'orders' | 'tracking' | 'auth' | 'profile' | 'partnerLogin' | 'partnerDashboard' | 'partnerMenu'
 
 export interface Restaurant {
   id: string
@@ -86,4 +86,23 @@ export interface Address {
   isDefault: boolean
   createdAt: string
   updatedAt: string
+}
+export interface PartnerProduct {
+  externalId: string
+  name: string
+  description: string
+  priceMinor: number
+  quantity: number
+  available: boolean
+}
+
+export interface PartnerCategory {
+  externalId: string
+  name: string
+  position: number
+  products: PartnerProduct[]
+}
+
+export interface PartnerMenu {
+  categories: PartnerCategory[]
 }

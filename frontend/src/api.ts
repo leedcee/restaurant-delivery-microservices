@@ -1,4 +1,4 @@
-import type { Address, Cart, Menu, Order, OrderQuote, Restaurant } from './types'
+import type { Address, Cart, Menu, Order, OrderQuote, PartnerMenu, Restaurant } from './types'
 import { authorizedFetch } from './auth'
 
 async function json<T>(response: Response): Promise<T> {
@@ -70,6 +70,19 @@ export async function updateAddress(id: string, input: { label?: string; address
 
 export async function deleteAddress(id: string): Promise<void> {
   const response = await authorizedFetch(`/api/v1/addresses/${id}`, { method: 'DELETE' })
+  if (!response.ok) await json(response)
+}
+
+export async function fetchPartnerMenu(apiKey: string): Promise<PartnerMenu> {
+  return json<PartnerMenu>(await fetch('/partner/v1/menu', { headers: { 'X-API-Key': apiKey } }))
+}
+
+export async function savePartnerMenu(apiKey: string, menu: PartnerMenu): Promise<void> {
+  const response = await fetch('/partner/v1/menu', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    body: JSON.stringify(menu),
+  })
   if (!response.ok) await json(response)
 }
 

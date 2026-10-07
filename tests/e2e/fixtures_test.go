@@ -62,16 +62,32 @@ func TestPartnerFixtures(t *testing.T) {
 		externalID := "partner-isolation-" + uuid.NewString()
 		payload := domain.PartnerMenu{Categories: []domain.PartnerCategory{{
 			ExternalID: externalID, Name: "Изолированное меню", Position: 1,
-			Products: []domain.PartnerProduct{{
-				ExternalID: externalID, Name: "Тестовая паста", PriceMinor: 44000, Quantity: 7, Available: true,
-			}},
+			Products: []domain.PartnerProduct{
+				{ExternalID: externalID, Name: "Тестовая паста", PriceMinor: 44000, Quantity: 7, Available: true},
+				{ExternalID: externalID + "-stop", Name: "Паста в стоп-листе", PriceMinor: 51000, Quantity: 3, Available: false},
+			},
 		}}}
 		doJSON(t, client, http.MethodPut, baseURL+"/partner/v1/menu", payload,
 			map[string]string{"X-API-Key": pastaAPIKey}, http.StatusNoContent, nil)
 
 		pastaAfter := fetchRestaurantMenu(t, client, pastaRestaurantID)
-		if products := menuProducts(pastaAfter); len(products) != 1 || products[0].Name != "Тестовая паста" {
+		products := menuProducts(pastaAfter)
+		if len(products) != 2 || firstAvailableProduct(products).Name != "Тестовая паста" {
 			t.Fatalf("pasta partner menu was not replaced: %+v", products)
+		}
+		var editable domain.PartnerMenu
+		doJSON(t, client, http.MethodGet, baseURL+"/partner/v1/menu", nil,
+			map[string]string{"X-API-Key": pastaAPIKey}, http.StatusOK, &editable)
+		stopListed := false
+		if len(editable.Categories) == 1 {
+			for _, product := range editable.Categories[0].Products {
+				if product.ExternalID == externalID+"-stop" && !product.Available && product.Quantity == 3 {
+					stopListed = true
+				}
+			}
+		}
+		if len(editable.Categories) != 1 || len(editable.Categories[0].Products) != 2 || !stopListed {
+			t.Fatalf("editable menu did not preserve identifiers or stop-list state: %+v", editable)
 		}
 		sushiAfter := fetchRestaurantMenu(t, client, sushiRestaurantID)
 		if len(menuProducts(sushiAfter)) != len(menuProducts(sushiBefore)) {
@@ -95,7 +111,7 @@ func TestPartnerFixtures(t *testing.T) {
 	t.Run("partner cannot read or update another restaurant order", func(t *testing.T) {
 		db := openTestDB(t)
 		menu := fetchRestaurantMenu(t, client, pastaRestaurantID)
-		product := menuProducts(menu)[0]
+		product := firstAvailableProduct(menuProducts(menu))
 		setRestaurantEndpoint(t, db, pastaRestaurantID, brokenEndpoint)
 		t.Cleanup(func() { setRestaurantEndpoint(t, db, pastaRestaurantID, demoEndpoint) })
 
@@ -153,6 +169,14 @@ func menuProducts(menu domain.Menu) []domain.Product {
 	return products
 }
 
+func firstAvailableProduct(items []domain.Product) domain.Product {
+	for _, item := range items {
+		if item.Available {
+			return item
+		}
+	}
+	return domain.Product{}
+}
 func findRestaurant(items []domain.Restaurant, id uuid.UUID) *domain.Restaurant {
 	for index := range items {
 		if items[index].ID == id {

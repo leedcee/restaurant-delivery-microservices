@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 
 	"restaurant-delivery-system/internal/domain"
 
@@ -61,7 +62,7 @@ func (q *Queries) GetMenu(ctx context.Context, restaurantID uuid.UUID) (domain.M
 		FROM menu_categories c
 		LEFT JOIN products p ON p.category_id = c.id AND p.is_active = true
 		LEFT JOIN product_inventory i ON i.product_id = p.id
-		WHERE c.restaurant_id = $1
+		WHERE c.restaurant_id = $1 AND c.is_active = true
 		  AND EXISTS (SELECT 1 FROM products active_product
 		              WHERE active_product.category_id = c.id AND active_product.is_active = true)
 		ORDER BY c.position, c.name, p.name`, restaurantID)
@@ -102,6 +103,54 @@ func (q *Queries) GetMenu(ctx context.Context, restaurantID uuid.UUID) (domain.M
 	return menu, nil
 }
 
+func (q *Queries) GetPartnerMenu(ctx context.Context, restaurantID uuid.UUID) (domain.PartnerMenu, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT c.external_id, c.name, c.position,
+		       p.external_id, p.name, p.description, p.price_minor, i.quantity, i.is_available
+		FROM menu_categories c
+		LEFT JOIN products p ON p.category_id = c.id AND p.is_active = true
+		LEFT JOIN product_inventory i ON i.product_id = p.id
+		WHERE c.restaurant_id = $1 AND c.is_active = true
+		ORDER BY c.position, c.name, p.name`, restaurantID)
+	if err != nil {
+		return domain.PartnerMenu{}, fmt.Errorf("query partner menu: %w", err)
+	}
+	defer rows.Close()
+
+	menu := domain.PartnerMenu{Categories: make([]domain.PartnerCategory, 0)}
+	categoryIndex := make(map[string]int)
+	for rows.Next() {
+		var externalID, name string
+		var position int
+		var productExternalID, productName, description *string
+		var price *int64
+		var quantity *int
+		var available *bool
+		if err := rows.Scan(&externalID, &name, &position, &productExternalID, &productName,
+			&description, &price, &quantity, &available); err != nil {
+			return domain.PartnerMenu{}, fmt.Errorf("scan partner menu: %w", err)
+		}
+		index, exists := categoryIndex[externalID]
+		if !exists {
+			menu.Categories = append(menu.Categories, domain.PartnerCategory{
+				ExternalID: externalID, Name: name, Position: position, Products: make([]domain.PartnerProduct, 0),
+			})
+			index = len(menu.Categories) - 1
+			categoryIndex[externalID] = index
+		}
+		if productExternalID != nil && productName != nil && description != nil && price != nil && quantity != nil && available != nil {
+			menu.Categories[index].Products = append(menu.Categories[index].Products, domain.PartnerProduct{
+				ExternalID: *productExternalID, Name: *productName, Description: *description,
+				PriceMinor: *price, Quantity: *quantity, Available: *available,
+			})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return domain.PartnerMenu{}, fmt.Errorf("iterate partner menu: %w", err)
+	}
+	return menu, nil
+}
+
 func (q *Queries) AuthenticatePartner(ctx context.Context, apiKey string) (uuid.UUID, error) {
 	hash := sha256.Sum256([]byte(apiKey))
 	var restaurantID uuid.UUID
@@ -118,6 +167,9 @@ func (q *Queries) AuthenticatePartner(ctx context.Context, apiKey string) (uuid.
 }
 
 func (q *Queries) ReplaceMenu(ctx context.Context, restaurantID uuid.UUID, menu domain.PartnerMenu) error {
+	if err := validatePartnerMenu(menu); err != nil {
+		return err
+	}
 	tx, err := q.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin menu transaction: %w", err)
@@ -126,6 +178,10 @@ func (q *Queries) ReplaceMenu(ctx context.Context, restaurantID uuid.UUID, menu 
 	if _, err = tx.Exec(ctx, `UPDATE products SET is_active = false, updated_at = now()
 		WHERE restaurant_id = $1`, restaurantID); err != nil {
 		return fmt.Errorf("deactivate previous menu: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE menu_categories SET is_active = false, updated_at = now()
+		WHERE restaurant_id = $1`, restaurantID); err != nil {
+		return fmt.Errorf("deactivate previous categories: %w", err)
 	}
 
 	for _, category := range menu.Categories {
@@ -137,7 +193,7 @@ func (q *Queries) ReplaceMenu(ctx context.Context, restaurantID uuid.UUID, menu 
 			INSERT INTO menu_categories (restaurant_id, external_id, name, position)
 			VALUES ($1, $2, $3, $4)
 			ON CONFLICT (restaurant_id, external_id) DO UPDATE
-			SET name = EXCLUDED.name, position = EXCLUDED.position, updated_at = now()
+			SET name = EXCLUDED.name, position = EXCLUDED.position, is_active = true, updated_at = now()
 			RETURNING id`, restaurantID, category.ExternalID, category.Name, category.Position).Scan(&categoryID)
 		if err != nil {
 			return fmt.Errorf("upsert category: %w", err)
@@ -172,6 +228,41 @@ func (q *Queries) ReplaceMenu(ctx context.Context, restaurantID uuid.UUID, menu 
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit menu: %w", err)
+	}
+	return nil
+}
+func validatePartnerMenu(menu domain.PartnerMenu) error {
+	if len(menu.Categories) > 50 {
+		return fmt.Errorf("%w: at most 50 categories are allowed", domain.ErrValidation)
+	}
+	categoryIDs := make(map[string]struct{}, len(menu.Categories))
+	productIDs := make(map[string]struct{})
+	productCount := 0
+	for _, category := range menu.Categories {
+		externalID, name := strings.TrimSpace(category.ExternalID), strings.TrimSpace(category.Name)
+		if externalID == "" || name == "" || len(externalID) > 100 || len(name) > 100 {
+			return fmt.Errorf("%w: invalid category", domain.ErrValidation)
+		}
+		if _, duplicate := categoryIDs[externalID]; duplicate {
+			return fmt.Errorf("%w: duplicate category external id", domain.ErrValidation)
+		}
+		categoryIDs[externalID] = struct{}{}
+		productCount += len(category.Products)
+		if productCount > 500 {
+			return fmt.Errorf("%w: at most 500 products are allowed", domain.ErrValidation)
+		}
+		for _, product := range category.Products {
+			productID, productName := strings.TrimSpace(product.ExternalID), strings.TrimSpace(product.Name)
+			if productID == "" || productName == "" || len(productID) > 100 || len(productName) > 200 ||
+				len(product.Description) > 1000 || product.PriceMinor < 0 || product.PriceMinor > 100_000_000 ||
+				product.Quantity < 0 || product.Quantity > 1_000_000 {
+				return fmt.Errorf("%w: invalid product", domain.ErrValidation)
+			}
+			if _, duplicate := productIDs[productID]; duplicate {
+				return fmt.Errorf("%w: duplicate product external id", domain.ErrValidation)
+			}
+			productIDs[productID] = struct{}{}
+		}
 	}
 	return nil
 }

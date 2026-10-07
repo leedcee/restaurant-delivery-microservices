@@ -39,6 +39,23 @@ func TestNegativeAndReliabilityScenarios(t *testing.T) {
 		}
 	})
 
+	t.Run("invalid partner menu is rejected atomically", func(t *testing.T) {
+		var before domain.PartnerMenu
+		doJSON(t, client, http.MethodGet, baseURL+"/partner/v1/menu", nil,
+			map[string]string{"X-API-Key": "demo-secret"}, http.StatusOK, &before)
+		invalid := domain.PartnerMenu{Categories: []domain.PartnerCategory{
+			{ExternalID: "duplicate", Name: "Первая", Products: []domain.PartnerProduct{}},
+			{ExternalID: "duplicate", Name: "Вторая", Products: []domain.PartnerProduct{}},
+		}}
+		doJSON(t, client, http.MethodPut, baseURL+"/partner/v1/menu", invalid,
+			map[string]string{"X-API-Key": "demo-secret"}, http.StatusUnprocessableEntity, nil)
+		var after domain.PartnerMenu
+		doJSON(t, client, http.MethodGet, baseURL+"/partner/v1/menu", nil,
+			map[string]string{"X-API-Key": "demo-secret"}, http.StatusOK, &after)
+		if len(after.Categories) != len(before.Categories) {
+			t.Fatalf("invalid replacement changed menu: before=%+v after=%+v", before, after)
+		}
+	})
 	t.Run("legacy user header does not authenticate customer", func(t *testing.T) {
 		status, body := requestJSON(t.Context(), client, http.MethodGet, baseURL+"/api/v1/orders", nil,
 			map[string]string{"X-User-ID": uuid.NewString()})

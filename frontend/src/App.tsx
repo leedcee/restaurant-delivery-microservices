@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { createAddress, createOrder, deleteAddress, fetchAddresses, fetchMenu, fetchOrder, fetchOrders, fetchPartnerOrders, fetchRestaurants, quoteOrder, streamOrder, updateAddress, updatePartnerOrderStatus } from './api'
+import { createAddress, createOrder, deleteAddress, fetchAddresses, fetchMenu, fetchOrder, fetchOrders, fetchPartnerMenu, fetchPartnerOrders, fetchRestaurants, quoteOrder, savePartnerMenu, streamOrder, updateAddress, updatePartnerOrderStatus } from './api'
 import { getSession, login, register, saveSession, subscribeToSession } from './auth'
-import type { Address, AuthSession, Cart, Menu, Order, OrderQuote, Product, Restaurant, Screen } from './types'
+import PartnerMenuEditor from './PartnerMenuEditor'
+import type { Address, AuthSession, Cart, Menu, Order, OrderQuote, PartnerMenu, Product, Restaurant, Screen } from './types'
 
 const money = (minor: number) => `${new Intl.NumberFormat('ru-RU').format(minor / 100)} ₽`
 const CART_KEY = 'looch-cart-v1'
@@ -16,6 +17,7 @@ function routeFromPath(): { screen: Screen; id?: string } {
   if (parts[0] === 'login') return { screen: 'auth' }
   if (parts[0] === 'profile') return { screen: 'profile' }
   if (parts[0] === 'partner' && parts[1] === 'orders') return { screen: 'partnerDashboard' }
+  if (parts[0] === 'partner' && parts[1] === 'menu') return { screen: 'partnerMenu' }
   if (parts[0] === 'partner') return { screen: 'partnerLogin' }
   return { screen: 'catalog' }
 }
@@ -139,10 +141,10 @@ const partnerNext: Record<string, { status: string; label: string }> = {
   pending: { status: 'accepted', label: 'Принять' }, accepted: { status: 'preparing', label: 'Начать готовить' }, preparing: { status: 'ready', label: 'Готово к выдаче' }, ready: { status: 'delivering', label: 'Передать курьеру' }, delivering: { status: 'delivered', label: 'Завершить доставку' },
 }
 
-function PartnerDashboard({ orders, loading, error, busyId, refresh, advance, reject, logout }: { orders: Order[]; loading: boolean; error: string; busyId: string; refresh: () => void; advance: (order: Order) => void; reject: (order: Order) => void; logout: () => void }) {
+function PartnerDashboard({ orders, loading, error, busyId, refresh, advance, reject, openMenu, logout }: { orders: Order[]; loading: boolean; error: string; busyId: string; refresh: () => void; advance: (order: Order) => void; reject: (order: Order) => void; openMenu: () => void; logout: () => void }) {
   const active = orders.filter((item) => !['delivered', 'rejected', 'cancelled'].includes(item.status))
   const finished = orders.filter((item) => ['delivered', 'rejected', 'cancelled'].includes(item.status))
-  return <main className="shell page partner-page"><div className="partner-top"><div><p className="eyebrow coral">Кабинет ресторана</p><h1>Очередь заказов</h1><p>Обновляется автоматически каждые 5 секунд</p></div><div><button className="button button--outline" onClick={refresh}>Обновить</button><button className="partner-logout" onClick={logout}>Выйти</button></div></div>{error && <Notice retry={refresh}>{error}</Notice>}<section className="partner-stats"><article><span>В работе</span><strong>{active.length}</strong></article><article><span>Новые</span><strong>{orders.filter((item) => item.status === 'pending').length}</strong></article><article><span>Завершены</span><strong>{finished.length}</strong></article></section><div className="partner-section-heading"><h2>Активные</h2>{loading && <span>Обновляем…</span>}</div><section className="partner-orders">{active.map((item) => <article className="partner-order" key={item.id}><div className="partner-order__head"><div><small>{item.createdAt ? new Date(item.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : 'Сейчас'}</small><h3>Заказ № {item.id.slice(0, 5).toUpperCase()}</h3></div><span className={`order-status order-status--${item.status}`}>{statusLabel[item.status] ?? item.status}</span></div><div className="partner-order__items">{item.items.map((product) => <p key={product.productId}><span>{product.name} × {product.quantity}</span><b>{money(product.totalMinor)}</b></p>)}</div><div className="partner-order__address"><span>Доставка</span><b>{item.deliveryAddress}</b></div><div className="partner-order__footer"><strong>{money(item.totalMinor)}</strong><div>{item.status === 'pending' && <button className="button button--outline" disabled={busyId === item.id} onClick={() => reject(item)}>Отклонить</button>}{partnerNext[item.status] && <button className="button button--coral" disabled={busyId === item.id} onClick={() => advance(item)}>{busyId === item.id ? 'Сохраняем…' : partnerNext[item.status].label}</button>}</div></div></article>)}{!active.length && !loading && <div className="empty"><h3>Активных заказов нет</h3><p>Новые заказы появятся здесь автоматически.</p></div>}</section>{finished.length > 0 && <><div className="partner-section-heading"><h2>Недавние</h2></div><section className="partner-history">{finished.slice(0, 8).map((item) => <article key={item.id}><span>№ {item.id.slice(0, 5).toUpperCase()}</span><b>{statusLabel[item.status] ?? item.status}</b><strong>{money(item.totalMinor)}</strong></article>)}</section></>}</main>
+  return <main className="shell page partner-page"><div className="partner-top"><div><p className="eyebrow coral">Кабинет ресторана</p><h1>Очередь заказов</h1><p>Обновляется автоматически каждые 5 секунд</p></div><div><button className="button button--outline" onClick={openMenu}>Меню</button><button className="button button--outline" onClick={refresh}>Обновить</button><button className="partner-logout" onClick={logout}>Выйти</button></div></div>{error && <Notice retry={refresh}>{error}</Notice>}<section className="partner-stats"><article><span>В работе</span><strong>{active.length}</strong></article><article><span>Новые</span><strong>{orders.filter((item) => item.status === 'pending').length}</strong></article><article><span>Завершены</span><strong>{finished.length}</strong></article></section><div className="partner-section-heading"><h2>Активные</h2>{loading && <span>Обновляем…</span>}</div><section className="partner-orders">{active.map((item) => <article className="partner-order" key={item.id}><div className="partner-order__head"><div><small>{item.createdAt ? new Date(item.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : 'Сейчас'}</small><h3>Заказ № {item.id.slice(0, 5).toUpperCase()}</h3></div><span className={`order-status order-status--${item.status}`}>{statusLabel[item.status] ?? item.status}</span></div><div className="partner-order__items">{item.items.map((product) => <p key={product.productId}><span>{product.name} × {product.quantity}</span><b>{money(product.totalMinor)}</b></p>)}</div><div className="partner-order__address"><span>Доставка</span><b>{item.deliveryAddress}</b></div><div className="partner-order__footer"><strong>{money(item.totalMinor)}</strong><div>{item.status === 'pending' && <button className="button button--outline" disabled={busyId === item.id} onClick={() => reject(item)}>Отклонить</button>}{partnerNext[item.status] && <button className="button button--coral" disabled={busyId === item.id} onClick={() => advance(item)}>{busyId === item.id ? 'Сохраняем…' : partnerNext[item.status].label}</button>}</div></div></article>)}{!active.length && !loading && <div className="empty"><h3>Активных заказов нет</h3><p>Новые заказы появятся здесь автоматически.</p></div>}</section>{finished.length > 0 && <><div className="partner-section-heading"><h2>Недавние</h2></div><section className="partner-history">{finished.slice(0, 8).map((item) => <article key={item.id}><span>№ {item.id.slice(0, 5).toUpperCase()}</span><b>{statusLabel[item.status] ?? item.status}</b><strong>{money(item.totalMinor)}</strong></article>)}</section></>}</main>
 }
 
 export default function App() {
@@ -172,6 +174,10 @@ export default function App() {
   const [partnerLoading, setPartnerLoading] = useState(false)
   const [partnerError, setPartnerError] = useState('')
   const [partnerBusyId, setPartnerBusyId] = useState('')
+  const [partnerMenu, setPartnerMenu] = useState<PartnerMenu | null>(null)
+  const [partnerMenuLoading, setPartnerMenuLoading] = useState(false)
+  const [partnerMenuSaving, setPartnerMenuSaving] = useState(false)
+  const [partnerMenuError, setPartnerMenuError] = useState('')
 
   const navigate = useCallback((path: string) => { history.pushState({}, '', path); const next = routeFromPath(); setScreen(next.screen); setRouteId(next.id); window.scrollTo(0, 0) }, [])
   const go = (next: Screen) => {
@@ -203,14 +209,23 @@ export default function App() {
     finally { setPartnerLoading(false) }
   }, [partnerKey])
 
+  const loadPartnerMenu = useCallback(async () => {
+    if (!partnerKey) return
+    setPartnerMenuLoading(true); setPartnerMenuError('')
+    try { setPartnerMenu(await fetchPartnerMenu(partnerKey)) }
+    catch (reason) { setPartnerMenuError(reason instanceof Error ? reason.message : 'Не удалось загрузить меню') }
+    finally { setPartnerMenuLoading(false) }
+  }, [partnerKey])
+
   useEffect(() => {
     if (screen === 'partnerLogin' && partnerKey) { navigate('/partner/orders'); return }
-    if (screen !== 'partnerDashboard') return
+    if (screen !== 'partnerDashboard' && screen !== 'partnerMenu') return
     if (!partnerKey) { navigate('/partner'); return }
+    if (screen === 'partnerMenu') { void loadPartnerMenu(); return }
     void loadPartnerOrders()
     const timer = window.setInterval(() => void loadPartnerOrders(), 5000)
     return () => window.clearInterval(timer)
-  }, [screen, partnerKey, loadPartnerOrders, navigate])
+  }, [screen, partnerKey, loadPartnerOrders, loadPartnerMenu, navigate])
 
   useEffect(() => {
     setLoading((value) => ({ ...value, catalog: true })); setErrors((value) => ({ ...value, catalog: '' }))
@@ -284,8 +299,8 @@ export default function App() {
     catch (reason) { setAddressError(reason instanceof Error ? reason.message : 'Не удалось удалить адрес') }
   }
   const partnerLogin = async (apiKey: string) => {
-    const items = await fetchPartnerOrders(apiKey)
-    sessionStorage.setItem(PARTNER_KEY, apiKey); setPartnerKey(apiKey); setPartnerOrders(items); navigate('/partner/orders')
+    const [items, liveMenu] = await Promise.all([fetchPartnerOrders(apiKey), fetchPartnerMenu(apiKey)])
+    sessionStorage.setItem(PARTNER_KEY, apiKey); setPartnerKey(apiKey); setPartnerOrders(items); setPartnerMenu(liveMenu); navigate('/partner/orders')
   }
   const changePartnerStatus = async (item: Order, status: string, reason?: string) => {
     setPartnerBusyId(item.id); setPartnerError('')
@@ -293,8 +308,14 @@ export default function App() {
     catch (cause) { setPartnerError(cause instanceof Error ? cause.message : 'Не удалось изменить статус') }
     finally { setPartnerBusyId('') }
   }
-  const partnerLogout = () => { sessionStorage.removeItem(PARTNER_KEY); setPartnerKey(''); setPartnerOrders([]); navigate('/partner') }
+  const persistPartnerMenu = async (nextMenu: PartnerMenu) => {
+    setPartnerMenuSaving(true); setPartnerMenuError('')
+    try { await savePartnerMenu(partnerKey, nextMenu); setPartnerMenu(nextMenu) }
+    catch (cause) { setPartnerMenuError(cause instanceof Error ? cause.message : 'Не удалось сохранить меню'); throw cause }
+    finally { setPartnerMenuSaving(false) }
+  }
+  const partnerLogout = () => { sessionStorage.removeItem(PARTNER_KEY); setPartnerKey(''); setPartnerOrders([]); setPartnerMenu(null); navigate('/partner') }
 
-  const isPartner = screen === 'partnerLogin' || screen === 'partnerDashboard'
-  return <>{!isPartner && <Header screen={screen} session={session} go={go} />}{isPartner && <header className="partner-header shell"><button className="brand" onClick={() => navigate('/')}><strong>LOOCH</strong><span>для ресторанов</span></button><a href="/">К клиентскому сервису →</a></header>}{screen === 'partnerLogin' && <PartnerLogin submit={partnerLogin} />}{screen === 'partnerDashboard' && <PartnerDashboard orders={partnerOrders} loading={partnerLoading} error={partnerError} busyId={partnerBusyId} refresh={() => void loadPartnerOrders()} advance={(item) => void changePartnerStatus(item, partnerNext[item.status].status)} reject={(item) => void changePartnerStatus(item, 'rejected', 'Отклонено рестораном')} logout={partnerLogout} />}{screen === 'catalog' && <Catalog restaurants={restaurants} choose={choose} loading={loading.catalog} error={errors.catalog} retry={() => setCatalogRetry((value) => value + 1)} />}{screen === 'menu' && menu && <MenuPage menu={menu} cart={cart} setCart={setCart} checkout={() => go('checkout')} loading={loading.menu} error={errors.menu} retry={() => selected && void loadMenu(selected)} />}{screen === 'menu' && !menu && <main className="shell page"><div className="loading-card"><span /><h2>Загружаем меню</h2></div></main>}{screen === 'checkout' && <Checkout quote={quote} addresses={addresses} submit={submit} busy={busy} error={errors.submit} quoteLoading={loading.quote} quoteError={errors.quote} retryQuote={() => setQuoteRetry((value) => value + 1)} />}{screen === 'auth' && <AuthPage complete={completeAuth} />}{screen === 'profile' && session && <ProfilePage session={session} orders={orders} addresses={addresses} addressError={addressError} openOrders={() => go('orders')} addAddress={addAddress} makeDefault={makeDefault} removeAddress={removeAddress} logout={logout} />}{screen === 'orders' && session && <OrdersPage orders={orders} loading={loading.orders} error={errors.orders} retry={() => setOrdersRetry((value) => value + 1)} open={(item) => { setOrder(item); navigate(`/orders/${item.id}`) }} />}{screen === 'tracking' && session && order && <Tracking order={order} streamError={errors.stream} retry={() => setStreamRetry((value) => value + 1)} />}{screen === 'tracking' && session && !order && <main className="shell page"><div className="loading-card"><span /><h2>Загружаем заказ</h2></div></main>}{!isPartner && <footer className="footer shell"><strong>LOOCH</strong><span>Еда рядом, когда она нужна.</span><a href="/partner">Для ресторанов</a><small>Web-клиент платформы доставки</small></footer>}</>
+  const isPartner = screen === 'partnerLogin' || screen === 'partnerDashboard' || screen === 'partnerMenu'
+  return <>{!isPartner && <Header screen={screen} session={session} go={go} />}{isPartner && <header className="partner-header shell"><button className="brand" onClick={() => navigate('/')}><strong>LOOCH</strong><span>для ресторанов</span></button><a href="/">К клиентскому сервису →</a></header>}{screen === 'partnerLogin' && <PartnerLogin submit={partnerLogin} />}{screen === 'partnerDashboard' && <PartnerDashboard orders={partnerOrders} loading={partnerLoading} error={partnerError} busyId={partnerBusyId} refresh={() => void loadPartnerOrders()} advance={(item) => void changePartnerStatus(item, partnerNext[item.status].status)} reject={(item) => void changePartnerStatus(item, 'rejected', 'Отклонено рестораном')} openMenu={() => navigate('/partner/menu')} logout={partnerLogout} />}{screen === 'partnerMenu' && <PartnerMenuEditor menu={partnerMenu} loading={partnerMenuLoading} saving={partnerMenuSaving} error={partnerMenuError} reload={() => void loadPartnerMenu()} save={persistPartnerMenu} openOrders={() => navigate('/partner/orders')} logout={partnerLogout} />}{screen === 'catalog' && <Catalog restaurants={restaurants} choose={choose} loading={loading.catalog} error={errors.catalog} retry={() => setCatalogRetry((value) => value + 1)} />}{screen === 'menu' && menu && <MenuPage menu={menu} cart={cart} setCart={setCart} checkout={() => go('checkout')} loading={loading.menu} error={errors.menu} retry={() => selected && void loadMenu(selected)} />}{screen === 'menu' && !menu && <main className="shell page"><div className="loading-card"><span /><h2>Загружаем меню</h2></div></main>}{screen === 'checkout' && <Checkout quote={quote} addresses={addresses} submit={submit} busy={busy} error={errors.submit} quoteLoading={loading.quote} quoteError={errors.quote} retryQuote={() => setQuoteRetry((value) => value + 1)} />}{screen === 'auth' && <AuthPage complete={completeAuth} />}{screen === 'profile' && session && <ProfilePage session={session} orders={orders} addresses={addresses} addressError={addressError} openOrders={() => go('orders')} addAddress={addAddress} makeDefault={makeDefault} removeAddress={removeAddress} logout={logout} />}{screen === 'orders' && session && <OrdersPage orders={orders} loading={loading.orders} error={errors.orders} retry={() => setOrdersRetry((value) => value + 1)} open={(item) => { setOrder(item); navigate(`/orders/${item.id}`) }} />}{screen === 'tracking' && session && order && <Tracking order={order} streamError={errors.stream} retry={() => setStreamRetry((value) => value + 1)} />}{screen === 'tracking' && session && !order && <main className="shell page"><div className="loading-card"><span /><h2>Загружаем заказ</h2></div></main>}{!isPartner && <footer className="footer shell"><strong>LOOCH</strong><span>Еда рядом, когда она нужна.</span><a href="/partner">Для ресторанов</a><small>Web-клиент платформы доставки</small></footer>}</>
 }

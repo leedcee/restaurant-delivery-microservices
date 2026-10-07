@@ -11,6 +11,7 @@ const session = { user, accessToken: 'access-token', refreshToken: 'refresh-toke
 
 test.beforeEach(async ({ page }) => {
   let addresses: Array<{ id: string; userId: string; label: string; address: string; isDefault: boolean; createdAt: string; updatedAt: string }> = []
+  let partnerMenu = { categories: [{ externalId: 'popular', name: 'Популярное', position: 1, products: [{ externalId: 'chicken-pasta', name: 'Паста с курицей', description: 'Фирменный соус', priceMinor: 49000, quantity: 20, available: true }] }] }
   let partnerOrder = { id: orderId, userId: user.id, restaurantId, status: 'pending', deliveryAddress: 'Самара, Московское шоссе, 15', items: [{ productId, name: 'Паста с курицей', quantity: 1, unitPriceMinor: 49000, totalMinor: 49000 }], deliveryFeeMinor: 13000, totalMinor: 62000, currency: 'RUB', createdAt: new Date().toISOString() }
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request()
@@ -67,6 +68,11 @@ test.beforeEach(async ({ page }) => {
     const request = route.request()
     if (request.headers()['x-api-key'] !== 'demo-secret') return route.fulfill({ status: 401, json: { title: 'Unauthorized' } })
     const path = new URL(request.url()).pathname
+    if (path === '/partner/v1/menu' && request.method() === 'GET') return route.fulfill({ json: partnerMenu })
+    if (path === '/partner/v1/menu' && request.method() === 'PUT') {
+      partnerMenu = request.postDataJSON() as typeof partnerMenu
+      return route.fulfill({ status: 204 })
+    }
     if (path === '/partner/v1/orders' && request.method() === 'GET') return route.fulfill({ json: { items: [partnerOrder] } })
     if (path === `/partner/v1/orders/${orderId}/status` && request.method() === 'PATCH') {
       const input = request.postDataJSON() as { status: string }
@@ -156,4 +162,24 @@ test('restaurant partner signs in and accepts an order', async ({ page }) => {
   await page.getByRole('button', { name: 'Принять' }).click()
   await expect(page.getByText('Принят', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Начать готовить' })).toBeVisible()
+})
+test('restaurant partner edits prices, stock and stop-list', async ({ page }) => {
+  await page.goto('/partner')
+  await page.getByLabel('API-ключ').fill('demo-secret')
+  await page.getByRole('button', { name: 'Открыть очередь' }).click()
+  await page.getByRole('button', { name: 'Меню' }).click()
+  await expect(page).toHaveURL('/partner/menu')
+  await page.getByLabel('Цена блюда 1-1').fill('555')
+  await page.getByLabel('Остаток блюда 1-1').fill('12')
+  await page.getByLabel('Доступность блюда 1-1').uncheck()
+  await page.getByRole('button', { name: '+ Добавить блюдо' }).click()
+  await page.getByLabel('Название блюда 1-2').fill('Новая позиция')
+  await page.getByLabel('Цена блюда 1-2').fill('320')
+  await page.getByLabel('Остаток блюда 1-2').fill('8')
+  await page.getByLabel('Доступность блюда 1-2').check()
+  await page.getByRole('button', { name: 'Сохранить меню' }).click()
+  await expect(page.getByRole('status')).toContainText('Меню сохранено')
+  await expect(page.getByText('В стоп-листе')).toBeVisible()
+  await page.getByRole('button', { name: 'Заказы' }).click()
+  await expect(page).toHaveURL('/partner/orders')
 })

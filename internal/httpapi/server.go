@@ -56,6 +56,7 @@ func New(db *pgxpool.Pool, logger *slog.Logger, jwtSecret string) http.Handler {
 	router.Post("/api/v1/orders", server.createOrder)
 	router.Get("/api/v1/orders/{orderID}", server.getOrder)
 	router.Get("/api/v1/orders/{orderID}/events", server.streamOrder)
+	router.Get("/partner/v1/menu", server.getPartnerMenu)
 	router.Put("/partner/v1/menu", server.replacePartnerMenu)
 	router.Get("/partner/v1/orders", server.listPartnerOrders)
 	router.Patch("/partner/v1/orders/{orderID}/status", server.updatePartnerOrderStatus)
@@ -373,6 +374,20 @@ func sendOrderEvent(w http.ResponseWriter, flusher http.Flusher, order domain.Or
 
 func terminalStatus(status domain.OrderStatus) bool {
 	return status == domain.OrderDelivered || status == domain.OrderCancelled || status == domain.OrderRejected
+}
+
+func (s *server) getPartnerMenu(w http.ResponseWriter, r *http.Request) {
+	restaurantID, err := s.queries.AuthenticatePartner(r.Context(), r.Header.Get("X-API-Key"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	menu, err := s.queries.GetPartnerMenu(r.Context(), restaurantID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, menu)
 }
 
 func (s *server) replacePartnerMenu(w http.ResponseWriter, r *http.Request) {

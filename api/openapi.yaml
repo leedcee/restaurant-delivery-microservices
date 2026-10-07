@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Restaurant Delivery Platform API
-  version: 0.6.0
+  version: 0.7.0
   description: API for customers and partner restaurants in the delivery platform.
 servers:
   - url: http://localhost:8080
@@ -357,6 +357,21 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
   /partner/v1/menu:
+    get:
+      summary: Get the authenticated restaurant menu for editing
+      tags: [Partner]
+      security:
+        - partnerApiKey: []
+      operationId: getPartnerMenu
+      responses:
+        '200':
+          description: Editable restaurant menu with external identifiers and inventory
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerMenu'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
     put:
       summary: Replace the authenticated restaurant menu
       tags: [Partner]
@@ -654,6 +669,7 @@ components:
           $ref: '#/components/schemas/Restaurant'
         categories:
           type: array
+          maxItems: 50
           items:
             $ref: '#/components/schemas/MenuCategory'
     DraftItem:
@@ -749,6 +765,7 @@ components:
       properties:
         categories:
           type: array
+          maxItems: 50
           items:
             type: object
             required: [externalId, name, products]
@@ -758,11 +775,12 @@ components:
                 maxLength: 100
               name:
                 type: string
-                maxLength: 200
+                maxLength: 100
               position:
                 type: integer
               products:
                 type: array
+                maxItems: 500
                 items:
                   type: object
                   required: [externalId, name, priceMinor, quantity, available]
@@ -780,9 +798,11 @@ components:
                       type: integer
                       format: int64
                       minimum: 0
+                      maximum: 100000000
                     quantity:
                       type: integer
                       minimum: 0
+                      maximum: 1000000
                     available:
                       type: boolean
     Problem:
