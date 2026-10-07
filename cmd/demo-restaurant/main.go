@@ -74,11 +74,11 @@ func (a *restaurant) receiveOrder(w http.ResponseWriter, r *http.Request) {
 	a.logger.Info("order received", "orderId", order.ID)
 	w.WriteHeader(http.StatusAccepted)
 	if !alreadyReceived {
-		go a.progressOrder(order.ID.String())
+		go a.progressOrder(order.ID.String(), order.RestaurantID.String())
 	}
 }
 
-func (a *restaurant) progressOrder(orderID string) {
+func (a *restaurant) progressOrder(orderID, restaurantID string) {
 	statuses := []domain.OrderStatus{
 		domain.OrderAccepted,
 		domain.OrderPreparing,
@@ -88,7 +88,7 @@ func (a *restaurant) progressOrder(orderID string) {
 	}
 	for _, status := range statuses {
 		time.Sleep(300 * time.Millisecond)
-		if err := a.sendStatus(orderID, status); err != nil {
+		if err := a.sendStatus(orderID, restaurantID, status); err != nil {
 			a.logger.Error("order status callback failed", "error", err, "orderId", orderID, "status", status)
 			return
 		}
@@ -101,7 +101,7 @@ func (a *restaurant) progressOrder(orderID string) {
 	}
 }
 
-func (a *restaurant) sendStatus(orderID string, status domain.OrderStatus) error {
+func (a *restaurant) sendStatus(orderID, restaurantID string, status domain.OrderStatus) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	body, err := json.Marshal(map[string]string{"status": string(status)})
@@ -114,7 +114,11 @@ func (a *restaurant) sendStatus(orderID string, status domain.OrderStatus) error
 		return fmt.Errorf("create callback: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", a.config.APIKey)
+	apiKey := a.config.APIKey
+	if partnerKey := a.config.PartnerAPIKeys[restaurantID]; partnerKey != "" {
+		apiKey = partnerKey
+	}
+	req.Header.Set("X-API-Key", apiKey)
 	response, err := a.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("send callback: %w", err)

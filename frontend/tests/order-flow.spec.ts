@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test'
 
 const restaurantId = '11111111-1111-1111-1111-111111111111'
+const pastaRestaurantId = '22222222-2222-2222-2222-222222222222'
+const sushiRestaurantId = '33333333-3333-3333-3333-333333333333'
 const productId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1'
 const orderId = '99999999-9999-9999-9999-999999999999'
 const addressId = '77777777-7777-7777-7777-777777777777'
@@ -37,7 +39,11 @@ test.beforeEach(async ({ page }) => {
       return route.fulfill({ status: 204 })
     }
     if (path === '/api/v1/restaurants') {
-      return route.fulfill({ json: { items: [{ id: restaurantId, name: 'Тёплый хлеб', description: 'Завтраки', isOpen: true, cuisine: 'Европейская · Завтраки', eta: '25–35 минут', rating: '4.8', art: 'bread' }] } })
+      return route.fulfill({ json: { items: [
+        { id: restaurantId, name: 'Тёплый хлеб', description: 'Завтраки', isOpen: true, cuisine: 'Европейская · Завтраки', eta: '25–35 минут', rating: '4.8', art: 'bread' },
+        { id: pastaRestaurantId, name: 'Паста Лаб', description: 'Свежая паста', isOpen: false, cuisine: 'Итальянская · Паста', eta: '30–40 минут', rating: '4.7', art: 'pasta' },
+        { id: sushiRestaurantId, name: 'Рис и рыба', description: 'Роллы и поке', isOpen: true, cuisine: 'Японская · Суши', eta: '35–45 минут', rating: '4.9', art: 'sushi' },
+      ] } })
     }
     if (path.endsWith('/menu')) {
       return route.fulfill({ json: { restaurant: { id: restaurantId, name: 'Тёплый хлеб', description: 'Завтраки', isOpen: true, cuisine: 'Европейская · Завтраки', eta: '25–35 минут', rating: '4.8', art: 'bread' }, categories: [{ id: 'popular', name: 'Популярное', products: [{ id: productId, name: 'Паста с курицей', description: 'Фирменный соус', priceMinor: 49000, currency: 'RUB', available: true, quantity: 20 }] }] } })
@@ -125,6 +131,20 @@ test('catalog does not invent restaurants when API is unavailable', async ({ pag
   await page.goto('/')
   await expect(page.getByText(/Сервис ресторанов не отвечает/)).toBeVisible()
   await expect(page.getByRole('button', { name: /Тёплый хлеб/ })).toHaveCount(0)
+})
+
+test('customer searches and filters the restaurant catalog', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('.restaurant-card')).toHaveCount(3)
+  await page.getByRole('button', { name: /^Фильтры/ }).click()
+  await page.getByRole('button', { name: 'Только открытые' }).click()
+  await expect(page.getByRole('button', { name: /Паста Лаб/ })).toHaveCount(0)
+  await expect(page.locator('.restaurant-card')).toHaveCount(2)
+  await page.getByRole('button', { name: 'Только открытые' }).click()
+  await page.getByPlaceholder('Название или кухня').fill('итальянская')
+  await page.getByRole('button', { name: 'Найти' }).click()
+  await expect(page.getByRole('button', { name: /Паста Лаб/ })).toBeVisible()
+  await expect(page.locator('.restaurant-card')).toHaveCount(1)
 })
 
 test('restaurant partner signs in and accepts an order', async ({ page }) => {

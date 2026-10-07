@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 // Platform contains configuration for the main API service.
@@ -18,6 +19,7 @@ type DemoRestaurant struct {
 	HTTPAddr        string
 	PlatformBaseURL string
 	APIKey          string
+	PartnerAPIKeys  map[string]string
 }
 
 // PlatformFromEnv returns validated main API configuration.
@@ -39,7 +41,20 @@ func DemoRestaurantFromEnv() DemoRestaurant {
 		HTTPAddr:        valueOrDefault("DEMO_HTTP_ADDR", ":8081"),
 		PlatformBaseURL: valueOrDefault("PLATFORM_BASE_URL", "http://localhost:8080"),
 		APIKey:          valueOrDefault("DEMO_API_KEY", "demo-secret"),
+		PartnerAPIKeys:  parseKeyMap(os.Getenv("DEMO_PARTNER_API_KEYS")),
 	}
+}
+
+func parseKeyMap(value string) map[string]string {
+	result := make(map[string]string)
+	for _, pair := range strings.Split(value, ",") {
+		id, key, ok := strings.Cut(pair, "=")
+		id, key = strings.TrimSpace(id), strings.TrimSpace(key)
+		if ok && id != "" && key != "" {
+			result[id] = key
+		}
+	}
+	return result
 }
 
 func valueOrDefault(key, fallback string) string {

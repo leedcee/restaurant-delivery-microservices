@@ -48,6 +48,10 @@ h2 { font-size: 2rem; letter-spacing: -.04em; }
 .button--outline { color: var(--coral); border-color: var(--coral); background: transparent; }
 .button:disabled { opacity: .6; cursor: wait; }
 .button b { background: white; color: var(--coral); border-radius: 50%; padding: 1px 6px; margin-left: 5px; }
+.catalog-filters { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 16px; position: relative; z-index: 1; }
+.catalog-filters button { min-height: 38px; padding: 0 15px; border: 1px solid #735f73; border-radius: 999px; color: #e8dde7; background: rgba(255,255,255,.05); cursor: pointer; font-size: .7rem; font-weight: 800; }
+.catalog-filters button.active { border-color: var(--coral); color: white; background: var(--coral); }
+.catalog-filters button.catalog-filters__reset { border-color: transparent; color: #cbbdca; background: transparent; text-decoration: underline; }
 .section-heading { display: flex; align-items: end; justify-content: space-between; margin: 62px 0 24px; }
 .section-heading h2 { margin-bottom: 0; }
 .text-link, .back { border: 0; background: none; color: var(--coral); font-weight: 700; cursor: pointer; }
@@ -198,7 +202,7 @@ h2 { font-size: 2rem; letter-spacing: -.04em; }
 @media (max-width: 800px) {
   .shell { width: min(100% - 28px, 560px); }
   .header { height: 68px; grid-template-columns: auto 1fr; }.brand span, .avatar { display: none; }.header nav { gap: 12px; justify-self: end; }.header nav button { font-size: .65rem; }
-  .page { padding-top: 24px; }.hero { padding: 30px 22px; border-radius: 20px; box-shadow: 6px 7px 0 #171019; }.hero h1 { font-size: 2.65rem; }.hero > p:not(.eyebrow) { font-size: .85rem; }.search-row { flex-wrap: wrap; }.search { flex-basis: 100%; }.search-row .button { flex: 1; padding: 0 14px; }
+  .page { padding-top: 24px; }.hero { padding: 30px 22px; border-radius: 20px; box-shadow: 6px 7px 0 #171019; }.hero h1 { font-size: 2.65rem; }.hero > p:not(.eyebrow) { font-size: .85rem; }.search-row { flex-wrap: wrap; }.search { flex-basis: 100%; }.search-row .button { flex: 1; padding: 0 14px; }.catalog-filters { gap: 7px; }.catalog-filters button { flex: 1 1 auto; }
   .section-heading { margin-top: 46px; }.section-heading h2 { font-size: 1.65rem; }.text-link { display: none; }
   .restaurant-grid, .product-grid { grid-template-columns: 1fr; }.restaurant-card { display: grid; grid-template-columns: 120px 1fr; }.restaurant-card__art { height: 118px; }.restaurant-card .food-art { transform: scale(.62); }.restaurant-card__body { padding: 15px 14px; }.restaurant-card__body p { margin-bottom: 13px; }
   .menu-title { align-items: start; }.menu-title h1 { font-size: 2.1rem; }.open-pill { display: none; }.tabs { margin-right: -14px; }.tabs button { min-width: 112px; padding: 10px 15px; }

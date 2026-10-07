@@ -30,6 +30,29 @@ services:
         condition: service_healthy
     restart: "no"
 
+  partner-fixtures:
+    image: postgres:17-alpine
+    environment:
+      PGPASSWORD: restaurant_test
+    volumes:
+      - ./fixtures:/fixtures:ro
+    command:
+      - psql
+      - -v
+      - ON_ERROR_STOP=1
+      - -h
+      - postgres
+      - -U
+      - restaurant_test
+      - -d
+      - restaurant_delivery_test
+      - -f
+      - /fixtures/partners.sql
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    restart: "no"
+
   platform-api:
     build:
       context: .
@@ -42,7 +65,7 @@ services:
     ports:
       - "18080:8080"
     depends_on:
-      migrations:
+      partner-fixtures:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "/service", "healthcheck"]
@@ -59,6 +82,7 @@ services:
       DEMO_HTTP_ADDR: :8081
       PLATFORM_BASE_URL: http://platform-api:8080
       DEMO_API_KEY: demo-secret
+      DEMO_PARTNER_API_KEYS: 22222222-2222-2222-2222-222222222222=pasta-secret,33333333-3333-3333-3333-333333333333=sushi-secret
     ports:
       - "18081:8081"
     depends_on:

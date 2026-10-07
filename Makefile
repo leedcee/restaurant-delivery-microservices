@@ -16,6 +16,7 @@ test-e2e:
 			-path=/migrations -database='postgres://restaurant_test:restaurant_test@postgres:5432/restaurant_delivery_test?sslmode=disable' down 1; \
 		docker compose -p restaurant-delivery-e2e -f docker-compose.e2e.yml run --rm migrations \
 			-path=/migrations -database='postgres://restaurant_test:restaurant_test@postgres:5432/restaurant_delivery_test?sslmode=disable' up; \
+		docker compose -p restaurant-delivery-e2e -f docker-compose.e2e.yml run --rm partner-fixtures; \
 		curl --fail http://127.0.0.1:18080/api/v1/restaurants
 
 lint:

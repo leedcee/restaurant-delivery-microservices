@@ -47,6 +47,58 @@ func TestNegativeAndReliabilityScenarios(t *testing.T) {
 		}
 	})
 
+	t.Run("malformed payload is rejected", func(t *testing.T) {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, baseURL+"/api/v1/orders/quote",
+			bytes.NewBufferString(`{"restaurantId":true,"unexpected":"field"}`))
+		if err != nil {
+			t.Fatalf("create malformed request: %v", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		response, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("send malformed request: %v", err)
+		}
+		defer response.Body.Close()
+		if response.StatusCode != http.StatusUnprocessableEntity {
+			t.Fatalf("malformed payload returned %d, want 422", response.StatusCode)
+		}
+	})
+
+	t.Run("invalid restaurant id is rejected", func(t *testing.T) {
+		status, body := requestJSON(t.Context(), client, http.MethodGet,
+			baseURL+"/api/v1/restaurants/not-a-uuid/menu", nil, nil)
+		if status != http.StatusUnprocessableEntity {
+			t.Fatalf("invalid restaurant id returned %d, want 422: %s", status, body)
+		}
+	})
+
+	t.Run("unknown restaurant is not found", func(t *testing.T) {
+		status, body := requestJSON(t.Context(), client, http.MethodGet,
+			baseURL+"/api/v1/restaurants/"+uuid.NewString()+"/menu", nil, nil)
+		if status != http.StatusNotFound {
+			t.Fatalf("unknown restaurant returned %d, want 404: %s", status, body)
+		}
+	})
+
+	t.Run("missing idempotency key is rejected", func(t *testing.T) {
+		productID := publishSingleProduct(t, client, "missing-idempotency", 2)
+		status, body := requestJSON(t.Context(), client, http.MethodPost, baseURL+"/api/v1/orders",
+			newDraft(productID, 1), map[string]string{"Authorization": "Bearer " + registerAccessToken(t, client)})
+		if status != http.StatusUnprocessableEntity {
+			t.Fatalf("missing idempotency key returned %d, want 422: %s", status, body)
+		}
+	})
+
+	t.Run("duplicate product in quote is rejected", func(t *testing.T) {
+		productID := publishSingleProduct(t, client, "duplicate-product", 2)
+		draft := newDraft(productID, 1)
+		draft.Items = append(draft.Items, draft.Items[0])
+		status, body := requestJSON(t.Context(), client, http.MethodPost, baseURL+"/api/v1/orders/quote", draft, nil)
+		if status != http.StatusUnprocessableEntity {
+			t.Fatalf("duplicate product returned %d, want 422: %s", status, body)
+		}
+	})
+
 	t.Run("closed restaurant rejects quote", func(t *testing.T) {
 		productID := publishSingleProduct(t, client, "closed", 2)
 		setRestaurantOpen(t, db, false)
@@ -248,8 +300,13 @@ func setRestaurantOpen(t *testing.T, db *pgxpool.Pool, open bool) {
 
 func setOrderEndpoint(t *testing.T, db *pgxpool.Pool, endpoint string) {
 	t.Helper()
+	setRestaurantEndpoint(t, db, demoRestaurantID, endpoint)
+}
+
+func setRestaurantEndpoint(t *testing.T, db *pgxpool.Pool, restaurantID, endpoint string) {
+	t.Helper()
 	if _, err := db.Exec(context.Background(), `UPDATE restaurant_integrations SET order_endpoint = $1
-		WHERE restaurant_id = $2`, endpoint, demoRestaurantID); err != nil {
+		WHERE restaurant_id = $2`, endpoint, restaurantID); err != nil {
 		t.Fatalf("set restaurant endpoint: %v", err)
 	}
 }

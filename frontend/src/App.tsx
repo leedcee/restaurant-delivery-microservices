@@ -48,13 +48,22 @@ function Notice({ children, retry }: { children: React.ReactNode; retry?: () => 
 
 function Catalog({ restaurants, choose, loading, error, retry }: { restaurants: Restaurant[]; choose: (restaurant: Restaurant) => void; loading: boolean; error: string; retry: () => void }) {
   const [query, setQuery] = useState('')
-  const filtered = restaurants.filter((item) => `${item.name} ${item.cuisine}`.toLowerCase().includes(query.toLowerCase()))
+  const [appliedQuery, setAppliedQuery] = useState('')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [openOnly, setOpenOnly] = useState(false)
+  const [highRating, setHighRating] = useState(false)
+  const activeFilters = Number(openOnly) + Number(highRating)
+  const filtered = restaurants.filter((item) => {
+    const matchesQuery = `${item.name} ${item.cuisine}`.toLowerCase().includes(appliedQuery.toLowerCase())
+    return matchesQuery && (!openOnly || item.isOpen) && (!highRating || Number(item.rating) >= 4.8)
+  })
+  const reset = () => { setQuery(''); setAppliedQuery(''); setOpenOnly(false); setHighRating(false) }
   return <main className="shell page catalog-page">
-    <section className="hero"><p className="eyebrow">Доставка из ресторанов рядом</p><h1>Что хочется сегодня?</h1><p>Собрали хорошие места и проверили, что у них есть в наличии прямо сейчас.</p><div className="search-row"><label className="search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Название или кухня" /></label><button className="button button--coral">Найти</button><button className="button button--outline">Фильтры <b>2</b></button></div></section>
+    <section className="hero"><p className="eyebrow">Доставка из ресторанов рядом</p><h1>Что хочется сегодня?</h1><p>Собрали хорошие места и проверили, что у них есть в наличии прямо сейчас.</p><form className="search-row" onSubmit={(event) => { event.preventDefault(); setAppliedQuery(query.trim()) }}><label className="search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Название или кухня" /></label><button className="button button--coral" type="submit">Найти</button><button className="button button--outline" type="button" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)}>Фильтры <b>{activeFilters}</b></button></form>{filtersOpen && <div className="catalog-filters"><button type="button" className={openOnly ? 'active' : ''} aria-pressed={openOnly} onClick={() => setOpenOnly((value) => !value)}>Только открытые</button><button type="button" className={highRating ? 'active' : ''} aria-pressed={highRating} onClick={() => setHighRating((value) => !value)}>Рейтинг 4.8+</button>{activeFilters > 0 && <button type="button" className="catalog-filters__reset" onClick={reset}>Сбросить</button>}</div>}</section>
     {error && <Notice retry={retry}>{error}</Notice>}
-    <div className="section-heading"><div><p className="eyebrow coral">Самара · Московское шоссе</p><h2>{loading ? 'Загружаем рестораны…' : 'Популярно рядом'}</h2></div><button className="text-link">Смотреть все →</button></div>
+    <div className="section-heading"><div><p className="eyebrow coral">Самара · Московское шоссе</p><h2>{loading ? 'Загружаем рестораны…' : 'Популярно рядом'}</h2></div><button className="text-link" onClick={reset}>Смотреть все →</button></div>
     <section className="restaurant-grid">{filtered.map((restaurant) => <button className="restaurant-card offset-card" key={restaurant.id} onClick={() => choose(restaurant)}><div className="restaurant-card__art"><FoodArt kind={restaurant.art} restaurant /><span className="rating">★ {restaurant.rating}</span></div><div className="restaurant-card__body"><h3>{restaurant.name}</h3><p>{restaurant.cuisine}</p><span className="eta">{restaurant.eta}</span><span className="card-arrow">→</span></div></button>)}</section>
-    {!filtered.length && <div className="empty"><h3>Ничего не нашли</h3><p>Попробуйте изменить запрос.</p></div>}
+    {!filtered.length && <div className="empty"><h3>Ничего не нашли</h3><p>Попробуйте изменить запрос или сбросить фильтры.</p></div>}
   </main>
 }
 
