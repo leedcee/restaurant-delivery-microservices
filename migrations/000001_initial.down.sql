@@ -1,3 +1,4 @@
+-- Remove the initial platform schema in reverse dependency order.
 DROP TABLE IF EXISTS outbox_events;
 DROP TABLE IF EXISTS order_status_history;
 DROP TABLE IF EXISTS order_items;

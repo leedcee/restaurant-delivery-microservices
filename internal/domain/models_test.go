@@ -13,6 +13,7 @@ func TestCanTransition(t *testing.T) {
 		{name: "restaurant accepts pending", from: OrderPending, to: OrderAccepted, want: true},
 		{name: "restaurant rejects pending", from: OrderPending, to: OrderRejected, want: true},
 		{name: "accepted starts preparing", from: OrderAccepted, to: OrderPreparing, want: true},
+		{name: "ready starts delivery", from: OrderReady, to: OrderDelivering, want: true},
 		{name: "cannot deliver pending", from: OrderPending, to: OrderDelivered, want: false},
 		{name: "cannot reopen delivered", from: OrderDelivered, to: OrderAccepted, want: false},
 		{name: "same status is not a transition", from: OrderAccepted, to: OrderAccepted, want: false},

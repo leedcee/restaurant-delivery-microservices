@@ -1,4 +1,5 @@
 @startuml
+' Core storage model for the restaurant delivery platform.
 title ER-диаграмма
 hide methods
 hide stereotypes

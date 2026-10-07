@@ -1,5 +1,6 @@
 $ErrorActionPreference = "Stop"
 
+# Render every maintained PlantUML source in both repository formats.
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $mount = "${projectRoot}:/workspace"
 $image = "plantuml/plantuml:1.2026.8"

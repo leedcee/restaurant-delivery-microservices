@@ -1,3 +1,4 @@
+# Build the selected Go service into the same minimal runtime image.
 FROM golang:1.26-alpine AS build
 
 WORKDIR /src

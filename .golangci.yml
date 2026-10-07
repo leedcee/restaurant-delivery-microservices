@@ -1,3 +1,4 @@
+# Shared static-analysis profile for backend services.
 version: "2"
 
 run:

@@ -15,6 +15,7 @@ func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse database config: %w", err)
 	}
+	// Keep the local and CI pools bounded while retaining one warm connection.
 	config.MaxConns = 10
 	config.MinConns = 1
 	config.MaxConnLifetime = 30 * time.Minute
