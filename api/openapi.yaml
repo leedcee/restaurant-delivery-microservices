@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Restaurant Delivery Platform API
-  version: 0.7.0
+  version: 0.8.0
   description: API for customers and partner restaurants in the delivery platform.
 servers:
   - url: http://localhost:8080
@@ -411,6 +411,22 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Order'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /partner/v1/orders/events:
+    get:
+      summary: Stream the authenticated restaurant order queue with Server-Sent Events
+      tags: [Partner]
+      security:
+        - partnerApiKey: []
+      operationId: streamPartnerOrders
+      responses:
+        '200':
+          description: SSE stream with `orders` events containing the current restaurant order list
+          content:
+            text/event-stream:
+              schema:
+                type: string
         '401':
           $ref: '#/components/responses/Unauthorized'
   /partner/v1/orders/{orderId}/status:

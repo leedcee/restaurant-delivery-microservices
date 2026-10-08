@@ -73,6 +73,7 @@ test.beforeEach(async ({ page }) => {
       partnerMenu = request.postDataJSON() as typeof partnerMenu
       return route.fulfill({ status: 204 })
     }
+    if (path === '/partner/v1/orders/events' && request.method() === 'GET') return route.fulfill({ contentType: 'text/event-stream', body: `event: orders\ndata: ${JSON.stringify({ items: [partnerOrder] })}\n\n` })
     if (path === '/partner/v1/orders' && request.method() === 'GET') return route.fulfill({ json: { items: [partnerOrder] } })
     if (path === `/partner/v1/orders/${orderId}/status` && request.method() === 'PATCH') {
       const input = request.postDataJSON() as { status: string }
@@ -162,6 +163,18 @@ test('restaurant partner signs in and accepts an order', async ({ page }) => {
   await page.getByRole('button', { name: 'Принять' }).click()
   await expect(page.getByText('Принят', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Начать готовить' })).toBeVisible()
+})
+test('restaurant partner receives a new order through realtime stream', async ({ page }) => {
+  const realtimeOrder = { id: '88888888-8888-8888-8888-888888888888', userId: user.id, restaurantId, status: 'pending', deliveryAddress: 'Самара, улица Нового заказа, 8', items: [{ productId, name: 'Паста с курицей', quantity: 2, unitPriceMinor: 49000, totalMinor: 98000 }], deliveryFeeMinor: 13000, totalMinor: 111000, currency: 'RUB', createdAt: new Date().toISOString() }
+  await page.route('**/partner/v1/orders/events', (route) => route.fulfill({
+    contentType: 'text/event-stream',
+    body: `event: orders\ndata: ${JSON.stringify({ items: [realtimeOrder] })}\n\n`,
+  }))
+  await page.goto('/partner')
+  await page.getByLabel('API-ключ').fill('demo-secret')
+  await page.getByRole('button', { name: 'Открыть очередь' }).click()
+  await expect(page).toHaveURL('/partner/orders')
+  await expect(page.getByText('Самара, улица Нового заказа, 8')).toBeVisible()
 })
 test('restaurant partner edits prices, stock and stop-list', async ({ page }) => {
   await page.goto('/partner')

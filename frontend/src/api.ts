@@ -99,6 +99,25 @@ export async function updatePartnerOrderStatus(apiKey: string, orderId: string, 
   }))
 }
 
+export async function streamPartnerOrders(apiKey: string, onOrders: (orders: Order[]) => void, signal: AbortSignal): Promise<void> {
+  const response = await fetch('/partner/v1/orders/events', { headers: { 'X-API-Key': apiKey }, signal })
+  if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`)
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) return
+    buffer += decoder.decode(value, { stream: true })
+    const events = buffer.split('\n\n')
+    buffer = events.pop() ?? ''
+    for (const event of events) {
+      if (!event.split('\n').some((line) => line === 'event: orders')) continue
+      const data = event.split('\n').find((line) => line.startsWith('data: '))
+      if (data) onOrders((JSON.parse(data.slice(6)) as { items: Order[] }).items)
+    }
+  }
+}
 export async function streamOrder(orderId: string, onOrder: (order: Order) => void, signal: AbortSignal): Promise<void> {
   const response = await authorizedFetch(`/api/v1/orders/${orderId}/events`, { signal })
   if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`)

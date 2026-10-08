@@ -23,16 +23,17 @@ import (
 )
 
 type server struct {
-	db       *pgxpool.Pool
-	logger   *slog.Logger
-	queries  *store.Queries
-	orders   *orders.Service
-	identity *identity.Service
+	db                 *pgxpool.Pool
+	logger             *slog.Logger
+	queries            *store.Queries
+	orders             *orders.Service
+	identity           *identity.Service
+	partnerOrderEvents *partnerOrderHub
 }
 
 // New creates the HTTP handler for the main API.
 func New(db *pgxpool.Pool, logger *slog.Logger, jwtSecret string) http.Handler {
-	server := &server{db: db, logger: logger, queries: store.NewQueries(db), orders: orders.New(db), identity: identity.New(db, jwtSecret)}
+	server := &server{db: db, logger: logger, queries: store.NewQueries(db), orders: orders.New(db), identity: identity.New(db, jwtSecret), partnerOrderEvents: newPartnerOrderHub()}
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
@@ -59,6 +60,7 @@ func New(db *pgxpool.Pool, logger *slog.Logger, jwtSecret string) http.Handler {
 	router.Get("/partner/v1/menu", server.getPartnerMenu)
 	router.Put("/partner/v1/menu", server.replacePartnerMenu)
 	router.Get("/partner/v1/orders", server.listPartnerOrders)
+	router.Get("/partner/v1/orders/events", server.streamPartnerOrders)
 	router.Patch("/partner/v1/orders/{orderID}/status", server.updatePartnerOrderStatus)
 	return router
 }
@@ -273,6 +275,8 @@ func (s *server) createOrder(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusCreated
 	if existing {
 		status = http.StatusOK
+	} else {
+		s.partnerOrderEvents.publish(order.RestaurantID)
 	}
 	writeJSON(w, status, order)
 }
@@ -408,6 +412,64 @@ func (s *server) replacePartnerMenu(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *server) streamPartnerOrders(w http.ResponseWriter, r *http.Request) {
+	restaurantID, err := s.queries.AuthenticatePartner(r.Context(), r.Header.Get("X-API-Key"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		s.fail(w, r, errors.New("streaming is unsupported"))
+		return
+	}
+	updates, unsubscribe := s.partnerOrderEvents.subscribe(restaurantID)
+	defer unsubscribe()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	if err := s.sendPartnerOrdersEvent(r, w, flusher, restaurantID); err != nil {
+		s.logger.Error("send initial partner order event", "error", err, "restaurantId", restaurantID)
+		return
+	}
+
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-updates:
+			if err := s.sendPartnerOrdersEvent(r, w, flusher, restaurantID); err != nil {
+				s.logger.Error("send partner order event", "error", err, "restaurantId", restaurantID)
+				return
+			}
+		case <-heartbeat.C:
+			if _, err := io.WriteString(w, ": keep-alive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
+func (s *server) sendPartnerOrdersEvent(r *http.Request, w io.Writer, flusher http.Flusher, restaurantID uuid.UUID) error {
+	items, err := s.orders.ListForRestaurant(r.Context(), restaurantID)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(map[string]any{"items": items})
+	if err != nil {
+		return fmt.Errorf("marshal partner orders: %w", err)
+	}
+	if _, err := fmt.Fprintf(w, "event: orders\ndata: %s\n\n", data); err != nil {
+		return fmt.Errorf("write partner orders: %w", err)
+	}
+	flusher.Flush()
+	return nil
+}
 func (s *server) updatePartnerOrderStatus(w http.ResponseWriter, r *http.Request) {
 	restaurantID, err := s.queries.AuthenticatePartner(r.Context(), r.Header.Get("X-API-Key"))
 	if err != nil {
@@ -432,6 +494,7 @@ func (s *server) updatePartnerOrderStatus(w http.ResponseWriter, r *http.Request
 		s.fail(w, r, err)
 		return
 	}
+	s.partnerOrderEvents.publish(restaurantID)
 	writeJSON(w, http.StatusOK, order)
 }
 

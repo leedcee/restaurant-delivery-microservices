@@ -32,10 +32,12 @@ func TestNegativeAndReliabilityScenarios(t *testing.T) {
 	db := openTestDB(t)
 
 	t.Run("invalid partner API key", func(t *testing.T) {
-		status, body := requestJSON(t.Context(), client, http.MethodGet, baseURL+"/partner/v1/orders", nil,
-			map[string]string{"X-API-Key": "definitely-wrong"})
-		if status != http.StatusUnauthorized {
-			t.Fatalf("got %d, want 401: %s", status, body)
+		for _, path := range []string{"/partner/v1/orders", "/partner/v1/orders/events"} {
+			status, body := requestJSON(t.Context(), client, http.MethodGet, baseURL+path, nil,
+				map[string]string{"X-API-Key": "definitely-wrong"})
+			if status != http.StatusUnauthorized {
+				t.Fatalf("GET %s returned %d, want 401: %s", path, status, body)
+			}
 		}
 	})
 
