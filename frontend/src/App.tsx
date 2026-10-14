@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { cancelOrder, createAddress, createOrder, deleteAddress, fetchAddresses, fetchMenu, fetchOrder, fetchOrders, fetchPartnerMenu, fetchPartnerOrders, fetchRestaurants, quoteOrder, savePartnerMenu, streamOrder, streamPartnerOrders, updateAddress, updatePartnerOrderStatus } from './api'
-import { getSession, login, register, saveSession, subscribeToSession } from './auth'
+import { getSession, login, logout as endSession, register, subscribeToSession } from './auth'
 import PartnerMenuEditor from './PartnerMenuEditor'
 import type { Address, AuthSession, Cart, Menu, Order, OrderQuote, PartnerMenu, Product, Restaurant, Screen } from './types'
 
@@ -324,7 +324,7 @@ export default function App() {
     const requested = new URLSearchParams(window.location.search).get('return')
     navigate(requested?.startsWith('/') && !requested.startsWith('//') ? requested : '/profile')
   }
-  const logout = () => { saveSession(null); setSession(null); setOrders([]); setOrder(null); navigate('/') }
+	const logout = async () => { await endSession(); setSession(null); setOrders([]); setOrder(null); navigate('/') }
   const addAddress = async (label: string, address: string) => {
     setAddressError('')
     try { const created = await createAddress({ label, address, isDefault: addresses.length === 0 }); setAddresses((items) => created.isDefault ? [created, ...items.map((item) => ({ ...item, isDefault: false }))] : [...items, created]) }

@@ -108,19 +108,9 @@ paths:
           $ref: '#/components/responses/Unauthorized'
   /api/v1/auth/refresh:
     post:
-      summary: Rotate a refresh token and issue a new token pair
+      summary: Rotate the HttpOnly refresh cookie and issue a new access token
       tags: [Auth]
       operationId: refreshSession
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [refreshToken]
-              properties:
-                refreshToken:
-                  type: string
       responses:
         '200':
           description: Rotated session
@@ -128,6 +118,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthSession'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/logout:
+    post:
+      summary: Revoke the current refresh-token family and clear its cookie
+      tags: [Auth]
+      operationId: logout
+      responses:
+        '204':
+          description: Session revoked
+  /api/v1/auth/logout-all:
+    post:
+      summary: Revoke every refresh session of the authenticated customer
+      tags: [Auth]
+      operationId: logoutAll
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: All sessions revoked
         '401':
           $ref: '#/components/responses/Unauthorized'
   /api/v1/auth/me:
@@ -608,13 +618,12 @@ components:
           format: date-time
     AuthSession:
       type: object
-      required: [user, accessToken, refreshToken, expiresIn]
+      description: The refresh token is returned only as an HttpOnly SameSite cookie.
+      required: [user, accessToken, expiresIn]
       properties:
         user:
           $ref: '#/components/schemas/User'
         accessToken:
-          type: string
-        refreshToken:
           type: string
         expiresIn:
           type: integer

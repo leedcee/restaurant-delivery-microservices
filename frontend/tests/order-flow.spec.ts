@@ -7,7 +7,7 @@ const productId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1'
 const orderId = '99999999-9999-9999-9999-999999999999'
 const addressId = '77777777-7777-7777-7777-777777777777'
 const user = { id: '55555555-5555-5555-5555-555555555555', name: 'Лидси', email: 'leedcee@example.com', createdAt: '2026-10-06T09:00:00Z' }
-const session = { user, accessToken: 'access-token', refreshToken: 'refresh-token', expiresIn: 900 }
+const session = { user, accessToken: 'access-token', expiresIn: 900 }
 
 test.beforeEach(async ({ page }) => {
   let addresses: Array<{ id: string; userId: string; label: string; address: string; isDefault: boolean; createdAt: string; updatedAt: string }> = []

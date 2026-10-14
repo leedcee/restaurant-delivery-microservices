@@ -29,11 +29,14 @@ type server struct {
 	orders             *orders.Service
 	identity           *identity.Service
 	partnerOrderEvents *partnerOrderHub
+	cookieSecure       bool
 }
 
+const refreshCookieName = "looch_refresh"
+
 // New creates the HTTP handler for the main API.
-func New(db *pgxpool.Pool, logger *slog.Logger, jwtSecret string) http.Handler {
-	server := &server{db: db, logger: logger, queries: store.NewQueries(db), orders: orders.New(db), identity: identity.New(db, jwtSecret), partnerOrderEvents: newPartnerOrderHub()}
+func New(db *pgxpool.Pool, logger *slog.Logger, jwtSecret string, cookieSecure bool) http.Handler {
+	server := &server{db: db, logger: logger, queries: store.NewQueries(db), orders: orders.New(db), identity: identity.New(db, jwtSecret), partnerOrderEvents: newPartnerOrderHub(), cookieSecure: cookieSecure}
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
@@ -47,6 +50,8 @@ func New(db *pgxpool.Pool, logger *slog.Logger, jwtSecret string) http.Handler {
 	router.Post("/api/v1/auth/register", server.register)
 	router.Post("/api/v1/auth/login", server.login)
 	router.Post("/api/v1/auth/refresh", server.refresh)
+	router.Post("/api/v1/auth/logout", server.logout)
+	router.Post("/api/v1/auth/logout-all", server.logoutAll)
 	router.Get("/api/v1/auth/me", server.me)
 	router.Get("/api/v1/addresses", server.listAddresses)
 	router.Post("/api/v1/addresses", server.createAddress)
@@ -121,6 +126,7 @@ func (s *server) register(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.setRefreshCookie(w, session.RefreshToken)
 	writeJSON(w, http.StatusCreated, session)
 }
 
@@ -135,23 +141,66 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.setRefreshCookie(w, session.RefreshToken)
 	writeJSON(w, http.StatusOK, session)
 }
 
 func (s *server) refresh(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		RefreshToken string `json:"refreshToken"`
+	cookie, err := r.Cookie(refreshCookieName)
+	if err != nil {
+		s.clearRefreshCookie(w)
+		s.fail(w, r, domain.ErrUnauthorized)
+		return
 	}
-	if err := decodeJSON(r, &input); err != nil {
+	session, err := s.identity.Refresh(r.Context(), cookie.Value)
+	if err != nil {
+		s.clearRefreshCookie(w)
 		s.fail(w, r, err)
 		return
 	}
-	session, err := s.identity.Refresh(r.Context(), input.RefreshToken)
+	s.setRefreshCookie(w, session.RefreshToken)
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (s *server) logout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie(refreshCookieName); err == nil {
+		if err := s.identity.Logout(r.Context(), cookie.Value); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
+	s.clearRefreshCookie(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) logoutAll(w http.ResponseWriter, r *http.Request) {
+	uid, err := s.userID(r)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, session)
+	if err := s.identity.LogoutAll(r.Context(), uid); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.clearRefreshCookie(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) setRefreshCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name: refreshCookieName, Value: token, Path: "/api/v1/auth",
+		MaxAge: int((30 * 24 * time.Hour).Seconds()), HttpOnly: true,
+		Secure: s.cookieSecure, SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func (s *server) clearRefreshCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name: refreshCookieName, Value: "", Path: "/api/v1/auth",
+		MaxAge: -1, Expires: time.Unix(1, 0), HttpOnly: true,
+		Secure: s.cookieSecure, SameSite: http.SameSiteLaxMode,
+	})
 }
 
 func (s *server) me(w http.ResponseWriter, r *http.Request) {

@@ -77,7 +77,6 @@ export interface User {
 export interface AuthSession {
   user: User
   accessToken: string
-  refreshToken: string
   expiresIn: number
 }
 

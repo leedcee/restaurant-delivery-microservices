@@ -171,7 +171,7 @@ type User struct {
 type AuthSession struct {
 	User         User   `json:"user"`
 	AccessToken  string `json:"accessToken"`
-	RefreshToken string `json:"refreshToken"`
+	RefreshToken string `json:"-"`
 	ExpiresIn    int64  `json:"expiresIn"`
 }
 

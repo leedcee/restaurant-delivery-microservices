@@ -4,14 +4,16 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
 // Platform contains configuration for the main API service.
 type Platform struct {
-	HTTPAddr    string
-	DatabaseURL string
-	JWTSecret   string
+	HTTPAddr     string
+	DatabaseURL  string
+	JWTSecret    string
+	CookieSecure bool
 }
 
 // DemoRestaurant contains configuration for the example partner service.
@@ -29,6 +31,11 @@ func PlatformFromEnv() (Platform, error) {
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		JWTSecret:   valueOrDefault("JWT_SECRET", "dev-only-change-me"),
 	}
+	secure, err := strconv.ParseBool(valueOrDefault("SESSION_COOKIE_SECURE", "false"))
+	if err != nil {
+		return Platform{}, fmt.Errorf("SESSION_COOKIE_SECURE must be true or false")
+	}
+	cfg.CookieSecure = secure
 	if cfg.DatabaseURL == "" {
 		return Platform{}, fmt.Errorf("DATABASE_URL is required")
 	}

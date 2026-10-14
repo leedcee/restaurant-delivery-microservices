@@ -4,6 +4,8 @@ package e2e
 
 import (
 	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"testing"
 	"time"
 
@@ -13,13 +15,17 @@ import (
 )
 
 func TestCustomerIdentityJourney(t *testing.T) {
-	client := &http.Client{}
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("create cookie jar: %v", err)
+	}
+	client := &http.Client{Jar: jar}
 	email := "e2e-" + uuid.NewString() + "@example.test"
 	registration := map[string]string{"email": email, "password": "strong-password", "name": "E2E Customer"}
 	var registered domain.AuthSession
 	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/auth/register", registration, nil,
 		http.StatusCreated, &registered)
-	if registered.User.Email != email || registered.AccessToken == "" || registered.RefreshToken == "" {
+	if registered.User.Email != email || registered.AccessToken == "" || registered.RefreshToken != "" {
 		t.Fatalf("invalid registration session: %+v", registered)
 	}
 
@@ -34,18 +40,41 @@ func TestCustomerIdentityJourney(t *testing.T) {
 	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/auth/login",
 		map[string]string{"email": email, "password": "strong-password"}, nil,
 		http.StatusOK, &loggedIn)
+	authURL, err := url.Parse(baseURL + "/api/v1/auth/refresh")
+	if err != nil {
+		t.Fatalf("parse auth URL: %v", err)
+	}
+	oldRefresh := cookieValue(jar.Cookies(authURL), "looch_refresh")
+	if oldRefresh == "" {
+		t.Fatal("login did not set the HttpOnly refresh cookie")
+	}
 
 	var refreshed domain.AuthSession
-	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/auth/refresh",
-		map[string]string{"refreshToken": loggedIn.RefreshToken}, nil, http.StatusOK, &refreshed)
-	if refreshed.RefreshToken == loggedIn.RefreshToken {
-		t.Fatal("refresh token was not rotated")
+	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/auth/refresh", nil, nil, http.StatusOK, &refreshed)
+	newRefresh := cookieValue(jar.Cookies(authURL), "looch_refresh")
+	if newRefresh == "" || newRefresh == oldRefresh {
+		t.Fatal("refresh cookie was not rotated")
 	}
-	status, _ := requestJSON(t.Context(), client, http.MethodPost, baseURL+"/api/v1/auth/refresh",
-		map[string]string{"refreshToken": loggedIn.RefreshToken}, nil)
+	plainClient := &http.Client{}
+	status, _ := requestJSON(t.Context(), plainClient, http.MethodPost, baseURL+"/api/v1/auth/refresh",
+		nil, map[string]string{"Cookie": "looch_refresh=" + oldRefresh})
 	if status != http.StatusUnauthorized {
 		t.Fatalf("reused refresh token returned %d, want 401", status)
 	}
+	status, _ = requestJSON(t.Context(), plainClient, http.MethodPost, baseURL+"/api/v1/auth/refresh", nil,
+		map[string]string{"Cookie": "looch_refresh=" + newRefresh})
+	if status != http.StatusUnauthorized {
+		t.Fatalf("token family survived reuse detection: got %d, want 401", status)
+	}
+}
+
+func cookieValue(cookies []*http.Cookie, name string) string {
+	for _, cookie := range cookies {
+		if cookie.Name == name {
+			return cookie.Value
+		}
+	}
+	return ""
 }
 
 func TestAuthenticatedOrderSurvivesRelogin(t *testing.T) {

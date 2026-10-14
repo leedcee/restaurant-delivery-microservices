@@ -2,15 +2,22 @@ import type { AuthSession } from './types'
 
 const AUTH_KEY = 'looch-auth-v1'
 const AUTH_EVENT = 'looch-auth-changed'
+let refreshPromise: Promise<AuthSession | null> | null = null
 
 export function getSession(): AuthSession | null {
   try {
-    return JSON.parse(localStorage.getItem(AUTH_KEY) ?? 'null') as AuthSession | null
+	const stored = JSON.parse(localStorage.getItem(AUTH_KEY) ?? 'null') as (AuthSession & { refreshToken?: string }) | null
+	if (stored?.refreshToken) {
+		const sanitized = { user: stored.user, accessToken: stored.accessToken, expiresIn: stored.expiresIn }
+		localStorage.setItem(AUTH_KEY, JSON.stringify(sanitized))
+		return sanitized
+	}
+	return stored
   } catch { return null }
 }
 
 export function saveSession(session: AuthSession | null) {
-  if (session) localStorage.setItem(AUTH_KEY, JSON.stringify(session))
+	if (session) localStorage.setItem(AUTH_KEY, JSON.stringify({ user: session.user, accessToken: session.accessToken, expiresIn: session.expiresIn }))
   else localStorage.removeItem(AUTH_KEY)
   window.dispatchEvent(new Event(AUTH_EVENT))
 }
@@ -43,13 +50,21 @@ export async function login(input: { email: string; password: string }): Promise
 }
 
 async function refreshSession(): Promise<AuthSession | null> {
-  const current = getSession()
-  if (!current?.refreshToken) return null
-  const response = await fetch('/api/v1/auth/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: current.refreshToken }) })
+	const response = await fetch('/api/v1/auth/refresh', { method: 'POST' })
   if (!response.ok) { saveSession(null); return null }
   const next = await response.json() as AuthSession
   saveSession(next)
   return next
+}
+
+function refreshSessionOnce(): Promise<AuthSession | null> {
+	if (!refreshPromise) refreshPromise = refreshSession().finally(() => { refreshPromise = null })
+	return refreshPromise
+}
+
+export async function logout(): Promise<void> {
+	try { await fetch('/api/v1/auth/logout', { method: 'POST' }) }
+	finally { saveSession(null) }
 }
 
 export async function authorizedFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
@@ -58,7 +73,7 @@ export async function authorizedFetch(input: RequestInfo | URL, init: RequestIni
   if (!current) throw new Error('Требуется вход в аккаунт')
   let response = await send(current.accessToken)
   if (response.status !== 401) return response
-  const refreshed = await refreshSession()
+	const refreshed = await refreshSessionOnce()
   if (!refreshed) throw new Error('Сессия истекла. Войдите снова.')
   response = await send(refreshed.accessToken)
   return response

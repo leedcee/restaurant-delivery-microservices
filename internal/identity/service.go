@@ -107,6 +107,9 @@ func (s *Service) Login(ctx context.Context, input Login) (domain.AuthSession, e
 }
 
 func (s *Service) Refresh(ctx context.Context, token string) (domain.AuthSession, error) {
+	if strings.TrimSpace(token) == "" {
+		return domain.AuthSession{}, domain.ErrUnauthorized
+	}
 	hash := tokenHash(token)
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -114,16 +117,32 @@ func (s *Service) Refresh(ctx context.Context, token string) (domain.AuthSession
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var user domain.User
-	var tokenID uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT t.id, u.id, u.email, u.name, u.created_at
+	var tokenID, familyID uuid.UUID
+	var revokedAt *time.Time
+	var expiresAt time.Time
+	err = tx.QueryRow(ctx, `SELECT t.id, t.family_id, t.revoked_at, t.expires_at,
+		       u.id, u.email, u.name, u.created_at
 		FROM refresh_tokens t JOIN users u ON u.id = t.user_id
-		WHERE t.token_hash = $1 AND t.revoked_at IS NULL AND t.expires_at > now()
-		FOR UPDATE OF t`, hash).Scan(&tokenID, &user.ID, &user.Email, &user.Name, &user.CreatedAt)
+		WHERE t.token_hash = $1 FOR UPDATE OF t`, hash).
+		Scan(&tokenID, &familyID, &revokedAt, &expiresAt, &user.ID, &user.Email, &user.Name, &user.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.AuthSession{}, domain.ErrUnauthorized
 	}
 	if err != nil {
 		return domain.AuthSession{}, fmt.Errorf("load refresh token: %w", err)
+	}
+	if revokedAt != nil {
+		if _, err = tx.Exec(ctx, `UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now())
+			WHERE family_id = $1`, familyID); err != nil {
+			return domain.AuthSession{}, fmt.Errorf("revoke reused token family: %w", err)
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return domain.AuthSession{}, fmt.Errorf("commit reused token revocation: %w", err)
+		}
+		return domain.AuthSession{}, domain.ErrUnauthorized
+	}
+	if !expiresAt.After(s.now()) {
+		return domain.AuthSession{}, domain.ErrUnauthorized
 	}
 	if _, err = tx.Exec(ctx, `UPDATE refresh_tokens SET revoked_at = now() WHERE id = $1`, tokenID); err != nil {
 		return domain.AuthSession{}, fmt.Errorf("revoke refresh token: %w", err)
@@ -132,8 +151,8 @@ func (s *Service) Refresh(ctx context.Context, token string) (domain.AuthSession
 	if err != nil {
 		return domain.AuthSession{}, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-		VALUES ($1, $2, $3)`, user.ID, tokenHash(refreshToken), s.now().Add(refreshTTL)); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, family_id, parent_id)
+		VALUES ($1, $2, $3, $4, $5)`, user.ID, tokenHash(refreshToken), s.now().Add(refreshTTL), familyID, tokenID); err != nil {
 		return domain.AuthSession{}, fmt.Errorf("rotate refresh token: %w", err)
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -144,6 +163,27 @@ func (s *Service) Refresh(ctx context.Context, token string) (domain.AuthSession
 		return domain.AuthSession{}, err
 	}
 	return domain.AuthSession{User: user, AccessToken: accessToken, RefreshToken: refreshToken, ExpiresIn: int64(accessTTL.Seconds())}, nil
+}
+
+func (s *Service) Logout(ctx context.Context, token string) error {
+	if strings.TrimSpace(token) == "" {
+		return nil
+	}
+	_, err := s.db.Exec(ctx, `UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now())
+		WHERE family_id = (SELECT family_id FROM refresh_tokens WHERE token_hash = $1)`, tokenHash(token))
+	if err != nil {
+		return fmt.Errorf("revoke session: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) LogoutAll(ctx context.Context, userID uuid.UUID) error {
+	_, err := s.db.Exec(ctx, `UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now())
+		WHERE user_id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("revoke all sessions: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) AuthenticateAccess(token string) (uuid.UUID, error) {
@@ -331,8 +371,9 @@ func (s *Service) issueSession(ctx context.Context, user domain.User) (domain.Au
 	if err != nil {
 		return domain.AuthSession{}, err
 	}
-	_, err = s.db.Exec(ctx, `INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-		VALUES ($1, $2, $3)`, user.ID, tokenHash(refreshToken), s.now().Add(refreshTTL))
+	familyID := uuid.New()
+	_, err = s.db.Exec(ctx, `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, family_id)
+		VALUES ($1, $2, $3, $4)`, user.ID, tokenHash(refreshToken), s.now().Add(refreshTTL), familyID)
 	if err != nil {
 		return domain.AuthSession{}, fmt.Errorf("store refresh token: %w", err)
 	}
