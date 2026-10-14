@@ -76,6 +76,8 @@ type OrderQuote struct {
 
 type OrderStatus string
 
+type OrderReasonCode string
+
 const (
 	OrderPending    OrderStatus = "pending"
 	OrderAccepted   OrderStatus = "accepted"
@@ -87,18 +89,29 @@ const (
 	OrderCancelled  OrderStatus = "cancelled"
 )
 
+const (
+	ReasonCustomerChangedMind  OrderReasonCode = "customer_changed_mind"
+	ReasonWrongDeliveryAddress OrderReasonCode = "wrong_delivery_address"
+	ReasonRestaurantBusy       OrderReasonCode = "restaurant_busy"
+	ReasonItemUnavailable      OrderReasonCode = "item_unavailable"
+	ReasonRestaurantClosing    OrderReasonCode = "restaurant_closing"
+	ReasonOther                OrderReasonCode = "other"
+)
+
 type Order struct {
-	ID               uuid.UUID   `json:"id"`
-	UserID           uuid.UUID   `json:"userId"`
-	RestaurantID     uuid.UUID   `json:"restaurantId"`
-	Items            []QuoteItem `json:"items"`
-	DeliveryFeeMinor int64       `json:"deliveryFeeMinor"`
-	TotalMinor       int64       `json:"totalMinor"`
-	Currency         string      `json:"currency"`
-	Status           OrderStatus `json:"status"`
-	DeliveryAddress  string      `json:"deliveryAddress"`
-	RejectionReason  *string     `json:"rejectionReason"`
-	CreatedAt        time.Time   `json:"createdAt"`
+	ID               uuid.UUID        `json:"id"`
+	UserID           uuid.UUID        `json:"userId"`
+	RestaurantID     uuid.UUID        `json:"restaurantId"`
+	Items            []QuoteItem      `json:"items"`
+	DeliveryFeeMinor int64            `json:"deliveryFeeMinor"`
+	TotalMinor       int64            `json:"totalMinor"`
+	Currency         string           `json:"currency"`
+	Status           OrderStatus      `json:"status"`
+	Version          int64            `json:"version"`
+	DeliveryAddress  string           `json:"deliveryAddress"`
+	RejectionReason  *string          `json:"rejectionReason"`
+	StatusReasonCode *OrderReasonCode `json:"statusReasonCode,omitempty"`
+	CreatedAt        time.Time        `json:"createdAt"`
 }
 
 func CanTransition(from, to OrderStatus) bool {
@@ -110,6 +123,22 @@ func CanTransition(from, to OrderStatus) bool {
 		OrderDelivering: {OrderDelivered: true},
 	}
 	return allowed[from][to]
+}
+
+func CanCustomerCancel(status OrderStatus) bool {
+	return status == OrderPending || status == OrderAccepted
+}
+
+func ValidReasonCode(status OrderStatus, code OrderReasonCode) bool {
+	switch status {
+	case OrderRejected:
+		return code == ReasonRestaurantBusy || code == ReasonItemUnavailable ||
+			code == ReasonRestaurantClosing || code == ReasonOther
+	case OrderCancelled:
+		return code == ReasonCustomerChangedMind || code == ReasonWrongDeliveryAddress || code == ReasonOther
+	default:
+		return code == ""
+	}
 }
 
 type PartnerMenu struct {

@@ -136,7 +136,7 @@ func (s *Service) Create(
 	order := domain.Order{
 		ID: uuid.New(), UserID: userID, RestaurantID: draft.RestaurantID, Items: quote.Items,
 		DeliveryFeeMinor: quote.DeliveryFeeMinor, TotalMinor: quote.TotalMinor, Currency: quote.Currency, Status: domain.OrderPending,
-		DeliveryAddress: strings.TrimSpace(draft.DeliveryAddress),
+		Version: 1, DeliveryAddress: strings.TrimSpace(draft.DeliveryAddress),
 	}
 	err = tx.QueryRow(ctx, `
 		INSERT INTO orders (id, user_id, restaurant_id, idempotency_key, request_hash, delivery_fee_minor, total_minor, currency, delivery_address)
@@ -224,8 +224,43 @@ func (s *Service) list(ctx context.Context, query string, queryID, userID, resta
 func (s *Service) UpdatePartnerStatus(
 	ctx context.Context,
 	orderID, restaurantID uuid.UUID,
+	expectedVersion int64,
 	status domain.OrderStatus,
+	reasonCode domain.OrderReasonCode,
 	reason string,
+) (domain.Order, error) {
+	if expectedVersion < 1 {
+		return domain.Order{}, fmt.Errorf("%w: expectedVersion must be positive", domain.ErrValidation)
+	}
+	if !domain.ValidReasonCode(status, reasonCode) {
+		return domain.Order{}, fmt.Errorf("%w: invalid reasonCode for status %s", domain.ErrValidation, status)
+	}
+	return s.transitionStatus(ctx, orderID, uuid.Nil, restaurantID, expectedVersion, status, reasonCode, reason, "restaurant")
+}
+
+func (s *Service) Cancel(
+	ctx context.Context,
+	orderID, userID uuid.UUID,
+	expectedVersion int64,
+	reasonCode domain.OrderReasonCode,
+	reason string,
+) (domain.Order, error) {
+	if expectedVersion < 1 {
+		return domain.Order{}, fmt.Errorf("%w: expectedVersion must be positive", domain.ErrValidation)
+	}
+	if !domain.ValidReasonCode(domain.OrderCancelled, reasonCode) {
+		return domain.Order{}, fmt.Errorf("%w: invalid cancellation reasonCode", domain.ErrValidation)
+	}
+	return s.transitionStatus(ctx, orderID, userID, uuid.Nil, expectedVersion, domain.OrderCancelled, reasonCode, reason, "user")
+}
+
+func (s *Service) transitionStatus(
+	ctx context.Context,
+	orderID, userID, restaurantID uuid.UUID,
+	expectedVersion int64,
+	status domain.OrderStatus,
+	reasonCode domain.OrderReasonCode,
+	reason, source string,
 ) (domain.Order, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -233,9 +268,19 @@ func (s *Service) UpdatePartnerStatus(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	query := `SELECT status, version FROM orders WHERE id = $1`
+	args := []any{orderID}
+	if userID != uuid.Nil {
+		query += ` AND user_id = $2`
+		args = append(args, userID)
+	} else {
+		query += ` AND restaurant_id = $2`
+		args = append(args, restaurantID)
+	}
+	query += ` FOR UPDATE`
 	var current domain.OrderStatus
-	err = tx.QueryRow(ctx, `SELECT status FROM orders WHERE id = $1 AND restaurant_id = $2 FOR UPDATE`,
-		orderID, restaurantID).Scan(&current)
+	var currentVersion int64
+	err = tx.QueryRow(ctx, query, args...).Scan(&current, &currentVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Order{}, domain.ErrNotFound
 	}
@@ -246,34 +291,53 @@ func (s *Service) UpdatePartnerStatus(
 		if err := tx.Commit(ctx); err != nil {
 			return domain.Order{}, fmt.Errorf("commit idempotent status: %w", err)
 		}
-		return getOrder(ctx, s.db, orderID, uuid.Nil, restaurantID)
+		return getOrder(ctx, s.db, orderID, userID, restaurantID)
 	}
-	if !domain.CanTransition(current, status) {
+	if currentVersion != expectedVersion {
+		return domain.Order{}, fmt.Errorf("%w: order version is %d, expected %d", domain.ErrConflict, currentVersion, expectedVersion)
+	}
+	if source == "user" && !domain.CanCustomerCancel(current) {
+		return domain.Order{}, fmt.Errorf("%w: customer cannot cancel order in status %s", domain.ErrConflict, current)
+	}
+	if source == "restaurant" && !domain.CanTransition(current, status) {
 		return domain.Order{}, fmt.Errorf("%w: transition %s -> %s is forbidden", domain.ErrConflict, current, status)
 	}
-	var rejectionReason *string
-	if status == domain.OrderRejected {
-		trimmed := strings.TrimSpace(reason)
-		if trimmed == "" {
-			return domain.Order{}, fmt.Errorf("%w: rejection reason is required", domain.ErrValidation)
-		}
-		rejectionReason = &trimmed
+	trimmedReason := strings.TrimSpace(reason)
+	if len(trimmedReason) > 500 {
+		return domain.Order{}, fmt.Errorf("%w: reason is too long", domain.ErrValidation)
 	}
-	_, err = tx.Exec(ctx, `UPDATE orders SET status = $1, rejection_reason = $2, updated_at = now()
-		WHERE id = $3`, status, rejectionReason, orderID)
+	var reasonText *string
+	if trimmedReason != "" {
+		reasonText = &trimmedReason
+	}
+	command, err := tx.Exec(ctx, `UPDATE orders
+		SET status = $1, rejection_reason = $2, status_reason_code = $3,
+		    version = version + 1, updated_at = now()
+		WHERE id = $4 AND version = $5`, status, reasonText, reasonCode, orderID, expectedVersion)
 	if err != nil {
 		return domain.Order{}, fmt.Errorf("update order status: %w", err)
 	}
+	if command.RowsAffected() != 1 {
+		return domain.Order{}, fmt.Errorf("%w: order was changed concurrently", domain.ErrConflict)
+	}
+	if status == domain.OrderRejected || status == domain.OrderCancelled {
+		if _, err = tx.Exec(ctx, `UPDATE product_inventory i
+			SET quantity = i.quantity + oi.quantity, updated_at = now()
+			FROM order_items oi WHERE oi.order_id = $1 AND oi.product_id = i.product_id`, orderID); err != nil {
+			return domain.Order{}, fmt.Errorf("restore order inventory: %w", err)
+		}
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO order_status_history
-		(order_id, from_status, to_status, source, reason) VALUES ($1, $2, $3, 'restaurant', $4)`,
-		orderID, current, status, rejectionReason)
+		(order_id, from_status, to_status, source, reason, reason_code, order_version)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		orderID, current, status, source, reasonText, reasonCode, currentVersion+1)
 	if err != nil {
 		return domain.Order{}, fmt.Errorf("record order status: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Order{}, fmt.Errorf("commit order status: %w", err)
 	}
-	return getOrder(ctx, s.db, orderID, uuid.Nil, restaurantID)
+	return getOrder(ctx, s.db, orderID, userID, restaurantID)
 }
 
 type rowQuerier interface {
@@ -370,8 +434,8 @@ func fingerprint(draft domain.OrderDraft) (string, error) {
 }
 
 func getOrder(ctx context.Context, db rowQuerier, orderID, userID, restaurantID uuid.UUID) (domain.Order, error) {
-	query := `SELECT id, user_id, restaurant_id, delivery_fee_minor, total_minor, currency, status, delivery_address,
-	                 rejection_reason, created_at FROM orders WHERE id = $1`
+	query := `SELECT id, user_id, restaurant_id, delivery_fee_minor, total_minor, currency, status, version,
+	                 delivery_address, rejection_reason, status_reason_code, created_at FROM orders WHERE id = $1`
 	args := []any{orderID}
 	if userID != uuid.Nil {
 		query += ` AND user_id = $2`
@@ -382,8 +446,8 @@ func getOrder(ctx context.Context, db rowQuerier, orderID, userID, restaurantID 
 	}
 	var order domain.Order
 	err := db.QueryRow(ctx, query, args...).Scan(&order.ID, &order.UserID, &order.RestaurantID,
-		&order.DeliveryFeeMinor, &order.TotalMinor, &order.Currency, &order.Status, &order.DeliveryAddress,
-		&order.RejectionReason, &order.CreatedAt)
+		&order.DeliveryFeeMinor, &order.TotalMinor, &order.Currency, &order.Status, &order.Version,
+		&order.DeliveryAddress, &order.RejectionReason, &order.StatusReasonCode, &order.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Order{}, domain.ErrNotFound
 	}

@@ -46,6 +46,9 @@ export interface Order {
   userId?: string
   restaurantId?: string
   status: string
+  version: number
+  statusReasonCode?: string | null
+  rejectionReason?: string | null
   deliveryAddress: string
   items: QuoteItem[]
   deliveryFeeMinor: number

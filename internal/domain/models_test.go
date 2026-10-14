@@ -27,3 +27,16 @@ func TestCanTransition(t *testing.T) {
 		})
 	}
 }
+
+func TestReasonCodesAndCustomerCancellation(t *testing.T) {
+	t.Parallel()
+	if !CanCustomerCancel(OrderPending) || !CanCustomerCancel(OrderAccepted) || CanCustomerCancel(OrderPreparing) {
+		t.Fatal("customer cancellation policy does not match the documented lifecycle")
+	}
+	if !ValidReasonCode(OrderRejected, ReasonRestaurantBusy) ||
+		ValidReasonCode(OrderRejected, ReasonCustomerChangedMind) ||
+		!ValidReasonCode(OrderCancelled, ReasonWrongDeliveryAddress) ||
+		ValidReasonCode(OrderAccepted, ReasonOther) {
+		t.Fatal("reason-code validation does not match the target status")
+	}
+}

@@ -12,7 +12,7 @@ const session = { user, accessToken: 'access-token', refreshToken: 'refresh-toke
 test.beforeEach(async ({ page }) => {
   let addresses: Array<{ id: string; userId: string; label: string; address: string; isDefault: boolean; createdAt: string; updatedAt: string }> = []
   let partnerMenu = { categories: [{ externalId: 'popular', name: 'Популярное', position: 1, products: [{ externalId: 'chicken-pasta', name: 'Паста с курицей', description: 'Фирменный соус', priceMinor: 49000, quantity: 20, available: true }] }] }
-  let partnerOrder = { id: orderId, userId: user.id, restaurantId, status: 'pending', deliveryAddress: 'Самара, Московское шоссе, 15', items: [{ productId, name: 'Паста с курицей', quantity: 1, unitPriceMinor: 49000, totalMinor: 49000 }], deliveryFeeMinor: 13000, totalMinor: 62000, currency: 'RUB', createdAt: new Date().toISOString() }
+  let partnerOrder = { id: orderId, userId: user.id, restaurantId, status: 'pending', version: 1, deliveryAddress: 'Самара, Московское шоссе, 15', items: [{ productId, name: 'Паста с курицей', quantity: 1, unitPriceMinor: 49000, totalMinor: 49000 }], deliveryFeeMinor: 13000, totalMinor: 62000, currency: 'RUB', createdAt: new Date().toISOString() }
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request()
     const path = new URL(request.url()).pathname
@@ -77,7 +77,7 @@ test.beforeEach(async ({ page }) => {
     if (path === '/partner/v1/orders' && request.method() === 'GET') return route.fulfill({ json: { items: [partnerOrder] } })
     if (path === `/partner/v1/orders/${orderId}/status` && request.method() === 'PATCH') {
       const input = request.postDataJSON() as { status: string }
-      partnerOrder = { ...partnerOrder, status: input.status }
+      partnerOrder = { ...partnerOrder, status: input.status, version: partnerOrder.version + 1 }
       return route.fulfill({ json: partnerOrder })
     }
     return route.fulfill({ status: 404, json: { title: 'Not found' } })

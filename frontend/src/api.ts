@@ -56,6 +56,14 @@ export async function fetchOrder(orderId: string): Promise<Order> {
   return json<Order>(await authorizedFetch(`/api/v1/orders/${orderId}`))
 }
 
+export async function cancelOrder(orderId: string, expectedVersion: number): Promise<Order> {
+  return json<Order>(await authorizedFetch(`/api/v1/orders/${orderId}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expectedVersion, reasonCode: 'customer_changed_mind' }),
+  }))
+}
+
 export async function fetchAddresses(): Promise<Address[]> {
   return (await json<{ items: Address[] }>(await authorizedFetch('/api/v1/addresses'))).items
 }
@@ -91,11 +99,11 @@ export async function fetchPartnerOrders(apiKey: string): Promise<Order[]> {
   return (await json<{ items: Order[] }>(response)).items
 }
 
-export async function updatePartnerOrderStatus(apiKey: string, orderId: string, status: string, reason?: string): Promise<Order> {
+export async function updatePartnerOrderStatus(apiKey: string, orderId: string, expectedVersion: number, status: string, reasonCode?: string, reason?: string): Promise<Order> {
   return json<Order>(await fetch(`/partner/v1/orders/${orderId}/status`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-    body: JSON.stringify({ status, ...(reason ? { reason } : {}) }),
+    body: JSON.stringify({ status, expectedVersion, reasonCode: reasonCode ?? '', ...(reason ? { reason } : {}) }),
   }))
 }
 

@@ -56,6 +56,7 @@ func New(db *pgxpool.Pool, logger *slog.Logger, jwtSecret string) http.Handler {
 	router.Get("/api/v1/orders", server.listUserOrders)
 	router.Post("/api/v1/orders", server.createOrder)
 	router.Get("/api/v1/orders/{orderID}", server.getOrder)
+	router.Post("/api/v1/orders/{orderID}/cancel", server.cancelOrder)
 	router.Get("/api/v1/orders/{orderID}/events", server.streamOrder)
 	router.Get("/partner/v1/menu", server.getPartnerMenu)
 	router.Put("/partner/v1/menu", server.replacePartnerMenu)
@@ -300,6 +301,35 @@ func (s *server) getOrder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, order)
 }
 
+func (s *server) cancelOrder(w http.ResponseWriter, r *http.Request) {
+	uid, err := s.userID(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	orderID, err := uuid.Parse(chi.URLParam(r, "orderID"))
+	if err != nil {
+		s.fail(w, r, fmt.Errorf("%w: invalid order id", domain.ErrValidation))
+		return
+	}
+	var input struct {
+		ExpectedVersion int64                  `json:"expectedVersion"`
+		ReasonCode      domain.OrderReasonCode `json:"reasonCode"`
+		Reason          string                 `json:"reason"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	order, err := s.orders.Cancel(r.Context(), orderID, uid, input.ExpectedVersion, input.ReasonCode, input.Reason)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.partnerOrderEvents.publish(order.RestaurantID)
+	writeJSON(w, http.StatusOK, order)
+}
+
 func (s *server) listUserOrders(w http.ResponseWriter, r *http.Request) {
 	uid, err := s.userID(r)
 	if err != nil {
@@ -482,14 +512,16 @@ func (s *server) updatePartnerOrderStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var input struct {
-		Status domain.OrderStatus `json:"status"`
-		Reason string             `json:"reason"`
+		Status          domain.OrderStatus     `json:"status"`
+		ExpectedVersion int64                  `json:"expectedVersion"`
+		ReasonCode      domain.OrderReasonCode `json:"reasonCode"`
+		Reason          string                 `json:"reason"`
 	}
 	if err := decodeJSON(r, &input); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	order, err := s.orders.UpdatePartnerStatus(r.Context(), orderID, restaurantID, input.Status, input.Reason)
+	order, err := s.orders.UpdatePartnerStatus(r.Context(), orderID, restaurantID, input.ExpectedVersion, input.Status, input.ReasonCode, input.Reason)
 	if err != nil {
 		s.fail(w, r, err)
 		return

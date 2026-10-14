@@ -147,10 +147,64 @@ func TestNegativeAndReliabilityScenarios(t *testing.T) {
 
 		status, body := requestJSON(t.Context(), client, http.MethodPatch,
 			baseURL+"/partner/v1/orders/"+order.ID.String()+"/status",
-			map[string]string{"status": string(domain.OrderDelivered)},
+			map[string]any{"status": domain.OrderDelivered, "expectedVersion": order.Version},
 			map[string]string{"X-API-Key": "demo-secret"})
 		if status != http.StatusConflict {
 			t.Fatalf("got %d, want 409: %s", status, body)
+		}
+	})
+
+	t.Run("cancellation restores inventory", func(t *testing.T) {
+		productID := publishSingleProduct(t, client, "cancel-restock", 1)
+		setOrderEndpoint(t, db, brokenEndpoint)
+		t.Cleanup(func() { restoreOrderEndpoint(t, db) })
+		accessToken := registerAccessToken(t, client)
+		status, body := createOrderRequest(t.Context(), client, newDraft(productID, 1), accessToken)
+		if status != http.StatusCreated {
+			t.Fatalf("create order returned %d: %s", status, body)
+		}
+		var order domain.Order
+		if err := json.Unmarshal([]byte(body), &order); err != nil {
+			t.Fatalf("decode order: %v", err)
+		}
+		if order.Version != 1 {
+			t.Fatalf("created order version = %d, want 1", order.Version)
+		}
+		var cancelled domain.Order
+		doJSON(t, client, http.MethodPost, baseURL+"/api/v1/orders/"+order.ID.String()+"/cancel",
+			map[string]any{"expectedVersion": order.Version, "reasonCode": domain.ReasonCustomerChangedMind},
+			map[string]string{"Authorization": "Bearer " + accessToken}, http.StatusOK, &cancelled)
+		if cancelled.Status != domain.OrderCancelled || cancelled.Version != 2 ||
+			cancelled.StatusReasonCode == nil || *cancelled.StatusReasonCode != domain.ReasonCustomerChangedMind {
+			t.Fatalf("unexpected cancelled order: %+v", cancelled)
+		}
+		var quantity int
+		if err := db.QueryRow(t.Context(), `SELECT quantity FROM product_inventory WHERE product_id = $1`, productID).Scan(&quantity); err != nil {
+			t.Fatalf("load restored inventory: %v", err)
+		}
+		if quantity != 1 {
+			t.Fatalf("inventory after cancellation = %d, want 1", quantity)
+		}
+	})
+
+	t.Run("stale status command is rejected", func(t *testing.T) {
+		productID := publishSingleProduct(t, client, "stale-version", 2)
+		setOrderEndpoint(t, db, brokenEndpoint)
+		t.Cleanup(func() { restoreOrderEndpoint(t, db) })
+		order := createOrder(t, client, newDraft(productID, 1))
+		var accepted domain.Order
+		doJSON(t, client, http.MethodPatch, baseURL+"/partner/v1/orders/"+order.ID.String()+"/status",
+			map[string]any{"status": domain.OrderAccepted, "expectedVersion": order.Version},
+			map[string]string{"X-API-Key": "demo-secret"}, http.StatusOK, &accepted)
+		if accepted.Version != order.Version+1 {
+			t.Fatalf("accepted order version = %d, want %d", accepted.Version, order.Version+1)
+		}
+		status, body := requestJSON(t.Context(), client, http.MethodPatch,
+			baseURL+"/partner/v1/orders/"+order.ID.String()+"/status",
+			map[string]any{"status": domain.OrderPreparing, "expectedVersion": order.Version},
+			map[string]string{"X-API-Key": "demo-secret"})
+		if status != http.StatusConflict {
+			t.Fatalf("stale transition returned %d, want 409: %s", status, body)
 		}
 	})
 

@@ -73,7 +73,7 @@ func (a *restaurant) receiveOrder(w http.ResponseWriter, r *http.Request) {
 	a.mu.Unlock()
 	a.logger.Info("order received", "orderId", order.ID)
 	w.WriteHeader(http.StatusAccepted)
-	if !alreadyReceived {
+	if !alreadyReceived && order.Status != domain.OrderRejected && order.Status != domain.OrderCancelled && order.Status != domain.OrderDelivered {
 		go a.progressOrder(order.ID.String(), order.RestaurantID.String())
 	}
 }
@@ -88,30 +88,32 @@ func (a *restaurant) progressOrder(orderID, restaurantID string) {
 	}
 	for _, status := range statuses {
 		time.Sleep(300 * time.Millisecond)
-		if err := a.sendStatus(orderID, restaurantID, status); err != nil {
+		a.mu.RLock()
+		current := a.orders[orderID]
+		a.mu.RUnlock()
+		updated, err := a.sendStatus(orderID, restaurantID, current.Version, status)
+		if err != nil {
 			a.logger.Error("order status callback failed", "error", err, "orderId", orderID, "status", status)
 			return
 		}
 		a.mu.Lock()
-		order := a.orders[orderID]
-		order.Status = status
-		a.orders[orderID] = order
+		a.orders[orderID] = updated
 		a.mu.Unlock()
 		a.logger.Info("order status updated", "orderId", orderID, "status", status)
 	}
 }
 
-func (a *restaurant) sendStatus(orderID, restaurantID string, status domain.OrderStatus) error {
+func (a *restaurant) sendStatus(orderID, restaurantID string, expectedVersion int64, status domain.OrderStatus) (domain.Order, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	body, err := json.Marshal(map[string]string{"status": string(status)})
+	body, err := json.Marshal(map[string]any{"status": status, "expectedVersion": expectedVersion})
 	if err != nil {
-		return fmt.Errorf("marshal callback: %w", err)
+		return domain.Order{}, fmt.Errorf("marshal callback: %w", err)
 	}
 	url := fmt.Sprintf("%s/partner/v1/orders/%s/status", a.config.PlatformBaseURL, orderID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, url, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("create callback: %w", err)
+		return domain.Order{}, fmt.Errorf("create callback: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	apiKey := a.config.APIKey
@@ -121,15 +123,17 @@ func (a *restaurant) sendStatus(orderID, restaurantID string, status domain.Orde
 	req.Header.Set("X-API-Key", apiKey)
 	response, err := a.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("send callback: %w", err)
+		return domain.Order{}, fmt.Errorf("send callback: %w", err)
 	}
-	if closeErr := response.Body.Close(); closeErr != nil {
-		return fmt.Errorf("close callback response: %w", closeErr)
-	}
+	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("callback returned status %d", response.StatusCode)
+		return domain.Order{}, fmt.Errorf("callback returned status %d", response.StatusCode)
 	}
-	return nil
+	var updated domain.Order
+	if err := json.NewDecoder(response.Body).Decode(&updated); err != nil {
+		return domain.Order{}, fmt.Errorf("decode callback response: %w", err)
+	}
+	return updated, nil
 }
 
 func (a *restaurant) publishMenuUntilReady(ctx context.Context) {

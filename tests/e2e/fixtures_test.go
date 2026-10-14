@@ -146,7 +146,7 @@ func TestPartnerFixtures(t *testing.T) {
 
 		status, body = requestJSON(t.Context(), client, http.MethodPatch,
 			baseURL+"/partner/v1/orders/"+order.ID.String()+"/status",
-			map[string]string{"status": string(domain.OrderAccepted)}, map[string]string{"X-API-Key": sushiAPIKey})
+			map[string]any{"status": domain.OrderAccepted, "expectedVersion": order.Version}, map[string]string{"X-API-Key": sushiAPIKey})
 		if status != http.StatusNotFound {
 			t.Fatalf("foreign partner update returned %d, want 404: %s", status, body)
 		}

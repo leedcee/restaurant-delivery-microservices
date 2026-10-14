@@ -356,6 +356,48 @@ paths:
                 type: string
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/orders/{orderId}/cancel:
+    post:
+      summary: Cancel an order before preparation starts
+      tags: [Customer]
+      operationId: cancelOrder
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expectedVersion, reasonCode]
+              properties:
+                expectedVersion:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                reasonCode:
+                  $ref: '#/components/schemas/CustomerCancellationReasonCode'
+                reason:
+                  type: string
+                  maxLength: 500
+      responses:
+        '200':
+          description: Cancelled order with restored inventory
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /partner/v1/menu:
     get:
       summary: Get the authenticated restaurant menu for editing
@@ -449,10 +491,16 @@ paths:
           application/json:
             schema:
               type: object
-              required: [status]
+              required: [status, expectedVersion]
               properties:
                 status:
                   $ref: '#/components/schemas/OrderStatus'
+                expectedVersion:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                reasonCode:
+                  $ref: '#/components/schemas/RestaurantRejectionReasonCode'
                 reason:
                   type: string
                   maxLength: 500
@@ -753,11 +801,17 @@ components:
     OrderStatus:
       type: string
       enum: [pending, accepted, rejected, preparing, ready, delivering, delivered, cancelled]
+    CustomerCancellationReasonCode:
+      type: string
+      enum: [customer_changed_mind, wrong_delivery_address, other]
+    RestaurantRejectionReasonCode:
+      type: string
+      enum: [restaurant_busy, item_unavailable, restaurant_closing, other]
     Order:
       allOf:
         - $ref: '#/components/schemas/OrderQuote'
         - type: object
-          required: [id, userId, status, deliveryAddress, createdAt]
+          required: [id, userId, status, version, deliveryAddress, createdAt]
           properties:
             id:
               type: string
@@ -767,6 +821,13 @@ components:
               format: uuid
             status:
               $ref: '#/components/schemas/OrderStatus'
+            version:
+              type: integer
+              format: int64
+              minimum: 1
+            statusReasonCode:
+              type: string
+              nullable: true
             deliveryAddress:
               type: string
             rejectionReason:
