@@ -87,12 +87,12 @@
 
 ### P0.4. Наблюдаемость: минимальный обязательный контур
 
-- [ ] добавить единый OpenTelemetry SDK в API, worker и demo restaurant;
-- [ ] принимать и передавать W3C `traceparent`, `tracestate` и baggage между HTTP-вызовами и событиями;
-- [ ] писать структурированные JSON-логи с `service`, `environment`, `version`, `request_id`, `trace_id`, `span_id`, `order_id` и `restaurant_id`;
+- [x] добавить единый OpenTelemetry SDK в API, worker и demo restaurant;
+- [x] принимать и передавать W3C `traceparent`, `tracestate` и baggage между HTTP-вызовами platform API, outbox worker и demo restaurant;
+- [ ] писать структурированные JSON-логи с `service`, `environment`, `version`, `request_id`, `trace_id`, `span_id`, `order_id` и `restaurant_id`: базовые поля и trace correlation готовы, остаётся унифицировать контекст всех доменных записей;
 - [x] добавить `/metrics` для Prometheus с RED, Go runtime, PostgreSQL pool и outbox-метриками;
-- [ ] поднять полный локальный observability profile в Compose: Prometheus и Grafana готовы; Loki, Tempo и OpenTelemetry Collector остаются следующим шагом;
-- [x] настроить provisioning Prometheus datasource, базовый dashboard и alert rules как код;
+- [x] поднять локальный observability profile в Compose: Prometheus, Grafana, Loki, Tempo, Promtail и OpenTelemetry Collector;
+- [x] настроить provisioning Prometheus, Loki и Tempo datasources, базовый dashboard и alert rules как код;
 - [ ] добавить exemplars: переход из графика latency в trace и из trace в связанные логи;
 - [ ] описать правила cardinality и запретить `user_id`, `order_id`, URL с UUID, email и address в labels;
 - [ ] добавить runbook к каждому критическому алерту: базовые API/outbox runbooks готовы, расширять вместе с новыми SLI.

@@ -19,6 +19,9 @@ import (
 
 	"restaurant-delivery-system/internal/config"
 	"restaurant-delivery-system/internal/domain"
+	"restaurant-delivery-system/internal/observability"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type restaurant struct {
@@ -31,12 +34,22 @@ type restaurant struct {
 }
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := observability.NewJSONLogger(os.Stdout, "demo-restaurant", envOrDefault("APP_ENVIRONMENT", "local"), envOrDefault("APP_VERSION", "dev"))
+	shutdownTracing, err := observability.InitTracing(context.Background(), "demo-restaurant", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	if err != nil {
+		logger.Error("tracing initialization failed", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdownTracing(shutdownCtx)
+	}()
 	cfg := config.DemoRestaurantFromEnv()
 	app := &restaurant{
 		config: cfg,
 		logger: logger,
-		client: &http.Client{Timeout: 5 * time.Second},
+		client: &http.Client{Timeout: 5 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)},
 		orders: make(map[string]domain.Order),
 		events: make(map[string]struct{}),
 	}
@@ -44,7 +57,7 @@ func main() {
 	mux.HandleFunc("GET /health/live", app.health)
 	mux.HandleFunc("POST /integration/v1/orders", app.receiveOrder)
 	server := &http.Server{
-		Addr: cfg.HTTPAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second,
+		Addr: cfg.HTTPAddr, Handler: observability.TraceMiddleware("demo-restaurant")(mux), ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -92,14 +105,14 @@ func (a *restaurant) receiveOrder(w http.ResponseWriter, r *http.Request) {
 	_, alreadyReceived := a.orders[order.ID.String()]
 	a.orders[order.ID.String()] = order
 	a.mu.Unlock()
-	a.logger.Info("order received", "orderId", order.ID)
+	a.logger.InfoContext(r.Context(), "order received", "orderId", order.ID)
 	w.WriteHeader(http.StatusAccepted)
 	if !alreadyReceived && order.Status != domain.OrderRejected && order.Status != domain.OrderCancelled && order.Status != domain.OrderDelivered {
-		go a.progressOrder(order.ID.String(), order.RestaurantID.String())
+		go a.progressOrder(context.WithoutCancel(r.Context()), order.ID.String(), order.RestaurantID.String())
 	}
 }
 
-func (a *restaurant) progressOrder(orderID, restaurantID string) {
+func (a *restaurant) progressOrder(ctx context.Context, orderID, restaurantID string) {
 	statuses := []domain.OrderStatus{
 		domain.OrderAccepted,
 		domain.OrderPreparing,
@@ -112,20 +125,20 @@ func (a *restaurant) progressOrder(orderID, restaurantID string) {
 		a.mu.RLock()
 		current := a.orders[orderID]
 		a.mu.RUnlock()
-		updated, err := a.sendStatus(orderID, restaurantID, current.Version, status)
+		updated, err := a.sendStatus(ctx, orderID, restaurantID, current.Version, status)
 		if err != nil {
-			a.logger.Error("order status callback failed", "error", err, "orderId", orderID, "status", status)
+			a.logger.ErrorContext(ctx, "order status callback failed", "error", err, "orderId", orderID, "status", status)
 			return
 		}
 		a.mu.Lock()
 		a.orders[orderID] = updated
 		a.mu.Unlock()
-		a.logger.Info("order status updated", "orderId", orderID, "status", status)
+		a.logger.InfoContext(ctx, "order status updated", "orderId", orderID, "status", status)
 	}
 }
 
-func (a *restaurant) sendStatus(orderID, restaurantID string, expectedVersion int64, status domain.OrderStatus) (domain.Order, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func (a *restaurant) sendStatus(parent context.Context, orderID, restaurantID string, expectedVersion int64, status domain.OrderStatus) (domain.Order, error) {
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
 	body, err := json.Marshal(map[string]any{"status": status, "expectedVersion": expectedVersion})
 	if err != nil {
@@ -155,6 +168,13 @@ func (a *restaurant) sendStatus(orderID, restaurantID string, expectedVersion in
 		return domain.Order{}, fmt.Errorf("decode callback response: %w", err)
 	}
 	return updated, nil
+}
+
+func envOrDefault(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func (a *restaurant) publishMenuUntilReady(ctx context.Context) {

@@ -4,7 +4,6 @@ package main
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -26,7 +25,19 @@ func main() {
 		return
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := observability.NewJSONLogger(os.Stdout, "platform-api", envOrDefault("APP_ENVIRONMENT", "local"), envOrDefault("APP_VERSION", "dev"))
+	shutdownTracing, err := observability.InitTracing(context.Background(), "platform-api", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	if err != nil {
+		logger.Error("tracing initialization failed", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTracing(shutdownCtx); err != nil {
+			logger.Error("tracing shutdown failed", "error", err)
+		}
+	}()
 	cfg, err := config.PlatformFromEnv()
 	if err != nil {
 		logger.Error("invalid configuration", "error", err)
@@ -68,6 +79,13 @@ func main() {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("HTTP shutdown failed", "error", err)
 	}
+}
+
+func envOrDefault(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func runHealthcheck() error {

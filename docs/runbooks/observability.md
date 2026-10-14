@@ -1,6 +1,6 @@
 # Runbook: базовая наблюдаемость
 
-Локальный контур запускается командой `make observability-up`. Prometheus доступен на `http://localhost:9090`, Grafana — на `http://localhost:3000` с логином `admin` и паролем из `GRAFANA_ADMIN_PASSWORD` (`admin` по умолчанию только для локальной разработки).
+Локальный контур запускается командой `make observability-up`. Prometheus доступен на `http://localhost:9090`, Grafana — на `http://localhost:3000` с логином `admin` и паролем из `GRAFANA_ADMIN_PASSWORD` (`admin` по умолчанию только для локальной разработки). Loki, Tempo и OpenTelemetry Collector доступны только во внутренней сети Compose; работать с логами и traces следует через Grafana Explore.
 
 ## PlatformAPIDown
 
@@ -13,8 +13,9 @@
 
 1. На dashboard `Service Overview` определить маршруты и статусы с ростом ошибок.
 2. Сопоставить интервал с JSON-логами API по `request_id`.
-3. Проверить доступность PostgreSQL и заполнение пула соединений.
-4. Не отключать алерт до устранения причины; единичные клиентские 4xx в него не входят.
+3. Если лог содержит `trace_id`, открыть связанную трассу через derived field `TraceID` в Loki.
+4. Проверить доступность PostgreSQL и заполнение пула соединений.
+5. Не отключать алерт до устранения причины; единичные клиентские 4xx в него не входят.
 
 ## OutboxDeliveryStalled
 

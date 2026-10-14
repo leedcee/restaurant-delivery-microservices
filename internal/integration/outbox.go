@@ -19,6 +19,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 type Worker struct {
@@ -33,7 +37,7 @@ const (
 )
 
 func NewWorker(db *pgxpool.Pool, logger *slog.Logger) *Worker {
-	return &Worker{db: db, logger: logger, client: &http.Client{Timeout: 5 * time.Second}}
+	return &Worker{db: db, logger: logger, client: &http.Client{Timeout: 5 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)}}
 }
 
 func (w *Worker) Run(ctx context.Context) {
@@ -73,11 +77,20 @@ type delivery struct {
 	Order         domain.Order
 }
 
-func (w *Worker) processOne(ctx context.Context) error {
+func (w *Worker) processOne(ctx context.Context) (returnErr error) {
 	item, err := w.claim(ctx)
 	if err != nil {
 		return err
 	}
+	ctx, span := otel.Tracer("platform-api/outbox").Start(ctx, "deliver "+item.EventType)
+	span.SetAttributes(attribute.String("messaging.message.id", item.EventID.String()), attribute.String("messaging.operation.name", "deliver"))
+	defer func() {
+		if returnErr != nil {
+			span.RecordError(returnErr)
+			span.SetStatus(codes.Error, returnErr.Error())
+		}
+		span.End()
+	}()
 	body, err := json.Marshal(item.Order)
 	if err != nil {
 		return fmt.Errorf("marshal delivery: %w", err)
@@ -106,7 +119,7 @@ func (w *Worker) processOne(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("complete outbox event: %w", err)
 	}
-	w.logger.Info("order delivered to restaurant", "orderId", item.Order.ID)
+	w.logger.InfoContext(ctx, "order delivered to restaurant", "orderId", item.Order.ID)
 	return nil
 }
 
@@ -175,7 +188,7 @@ func (w *Worker) fail(ctx context.Context, item delivery, cause error) error {
 		_, err = w.db.Exec(ctx, `UPDATE outbox_events
 			SET last_error = $1, dead_lettered_at = now() WHERE id = $2`, cause.Error(), item.EventID)
 		if err == nil {
-			w.logger.Error("outbox event moved to dead letter", "eventId", item.EventID,
+			w.logger.ErrorContext(ctx, "outbox event moved to dead letter", "eventId", item.EventID,
 				"eventType", item.EventType, "attempts", item.Attempts, "error", cause)
 		}
 	} else {

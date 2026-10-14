@@ -43,7 +43,7 @@
 - отдельные URL экранов и восстановление корзины после перезагрузки;
 - состояния загрузки, ошибок и повтор запросов;
 - Prometheus endpoint с RED, Go runtime, PostgreSQL pool и outbox-метриками;
-- готовый локальный профиль Prometheus + Grafana с dashboard и стартовыми alert rules;
+- готовый локальный профиль Prometheus, Grafana, Loki, Tempo и OpenTelemetry Collector с dashboard и стартовыми alert rules;
 - OpenAPI-контракты, C4, ER, sequence-диаграмма и CJM;
 - unit- и E2E-тесты, включая конкурентное списание последнего товара.
 
@@ -104,11 +104,13 @@ curl http://localhost:8080/api/v1/restaurants
 make observability-up
 ```
 
-После запуска дополнительно доступны Prometheus на `http://localhost:9090`, Grafana на `http://localhost:3000` и метрики API на `http://localhost:8080/metrics`. Grafana автоматически получает Prometheus datasource и dashboard `Restaurant Delivery / Service Overview`. Локальные учётные данные по умолчанию — `admin` / `admin`; их можно переопределить через `GRAFANA_ADMIN_USER` и `GRAFANA_ADMIN_PASSWORD`.
+После запуска дополнительно доступны Prometheus на `http://localhost:9090`, Grafana на `http://localhost:3000` и метрики API на `http://localhost:8080/metrics`. Grafana автоматически получает Prometheus, Loki и Tempo datasources и dashboard `Restaurant Delivery / Service Overview`. Локальные учётные данные по умолчанию — `admin` / `admin`; их можно переопределить через `GRAFANA_ADMIN_USER` и `GRAFANA_ADMIN_PASSWORD`.
 
 Prometheus хранит локальные метрики семь дней и загружает стартовые алерты для недоступности API, высокой доли 5xx, остановки outbox и появления dead-letter событий. Инструкции по реакции находятся в [runbook наблюдаемости](docs/runbooks/observability.md).
 
 Порты Prometheus и Grafana в локальном Compose привязаны только к loopback-интерфейсу. При внешнем развёртывании `/metrics` также должен оставаться во внутренней сети и не публиковаться через пользовательский reverse proxy.
+
+API и demo restaurant экспортируют OTLP traces через Collector в Tempo. W3C trace context передаётся между сервисами автоматически, а JSON-логи содержат `service`, `environment`, `version` и, при наличии активного span, `trace_id`/`span_id`. В Grafana Explore trace можно открыть из поля `trace_id` в Loki и перейти из Tempo к логам того же запроса. Логи и метрики хранятся семь дней, traces — сутки.
 
 Для просмотра отдельных партнёрских кабинетов используйте ключи:
 

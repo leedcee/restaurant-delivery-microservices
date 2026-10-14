@@ -41,6 +41,7 @@ func New(db *pgxpool.Pool, logger *slog.Logger, jwtSecret string, cookieSecure b
 	limiter := newRateLimiter()
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
+	router.Use(observability.TraceMiddleware("platform-api"))
 	router.Use(metrics.Middleware)
 	router.Use(middleware.Recoverer)
 	router.Use(requestTimeout(10 * time.Second))
@@ -665,7 +666,7 @@ func (s *server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, domain.ErrConflict):
 		status, title, typeName = http.StatusConflict, "Conflict", "/problems/conflict"
 	default:
-		s.logger.Error("request failed", "error", err, "requestId", middleware.GetReqID(r.Context()))
+		s.logger.ErrorContext(r.Context(), "request failed", "error", err, "requestId", middleware.GetReqID(r.Context()))
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	writeJSON(w, status, map[string]any{

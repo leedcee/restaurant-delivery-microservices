@@ -1,0 +1,68 @@
+services:
+  platform-api:
+    environment:
+      APP_ENVIRONMENT: local
+      APP_VERSION: compose
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  demo-restaurant:
+    environment:
+      APP_ENVIRONMENT: local
+      APP_VERSION: compose
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.136.0
+    profiles: [observability]
+    command: [--config=/etc/otelcol-contrib/config.yml]
+    volumes:
+      - ./deploy/observability/otel-collector.yml:/etc/otelcol-contrib/config.yml:ro
+    depends_on:
+      tempo:
+        condition: service_started
+
+  tempo:
+    image: grafana/tempo:2.8.2
+    profiles: [observability]
+    command: [-config.file=/etc/tempo.yml]
+    volumes:
+      - ./deploy/observability/tempo.yml:/etc/tempo.yml:ro
+      - tempo-data:/var/tempo
+
+  loki:
+    image: grafana/loki:3.5.5
+    profiles: [observability]
+    command: [-config.file=/etc/loki/local-config.yml]
+    volumes:
+      - ./deploy/observability/loki.yml:/etc/loki/local-config.yml:ro
+      - loki-data:/loki
+
+  promtail:
+    image: grafana/promtail:3.5.5
+    profiles: [observability]
+    command: [-config.file=/etc/promtail/config.yml]
+    volumes:
+      - ./deploy/observability/promtail.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    depends_on:
+      loki:
+        condition: service_started
+
+  grafana:
+    depends_on:
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+
+volumes:
+  tempo-data:
+  loki-data:
+

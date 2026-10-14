@@ -38,7 +38,7 @@ logs:
 	docker compose logs -f
 
 observability-up:
-	docker compose --profile observability up --build -d
+	docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile observability up --build -d
 
 observability-down:
-	docker compose --profile observability down
+	docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile observability down
