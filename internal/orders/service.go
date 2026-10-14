@@ -168,8 +168,9 @@ func (s *Service) Create(
 	if err != nil {
 		return domain.Order{}, false, fmt.Errorf("create order history: %w", err)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO outbox_events (aggregate_id, event_type, payload)
-		VALUES ($1::uuid, 'order.created', jsonb_build_object('orderId', $1::text))`, order.ID)
+	_, err = tx.Exec(ctx, `INSERT INTO outbox_events
+		(aggregate_id, event_type, event_version, correlation_id, payload)
+		VALUES ($1::uuid, 'order.created', 1, $1::uuid, jsonb_build_object('orderId', $1::text))`, order.ID)
 	if err != nil {
 		return domain.Order{}, false, fmt.Errorf("create outbox event: %w", err)
 	}

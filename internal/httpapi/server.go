@@ -69,6 +69,8 @@ func New(db *pgxpool.Pool, logger *slog.Logger, jwtSecret string, cookieSecure b
 	router.Get("/partner/v1/orders", server.listPartnerOrders)
 	router.Get("/partner/v1/orders/events", server.streamPartnerOrders)
 	router.Patch("/partner/v1/orders/{orderID}/status", server.updatePartnerOrderStatus)
+	router.Get("/partner/v1/outbox/dead-letters", server.listPartnerDeadLetters)
+	router.Post("/partner/v1/outbox/dead-letters/{eventID}/replay", server.replayPartnerDeadLetter)
 	return router
 }
 
@@ -592,6 +594,38 @@ func (s *server) listPartnerOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *server) listPartnerDeadLetters(w http.ResponseWriter, r *http.Request) {
+	restaurantID, err := s.queries.AuthenticatePartner(r.Context(), r.Header.Get("X-API-Key"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	items, err := s.queries.ListPartnerDeadLetters(r.Context(), restaurantID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *server) replayPartnerDeadLetter(w http.ResponseWriter, r *http.Request) {
+	restaurantID, err := s.queries.AuthenticatePartner(r.Context(), r.Header.Get("X-API-Key"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	eventID, err := uuid.Parse(chi.URLParam(r, "eventID"))
+	if err != nil {
+		s.fail(w, r, fmt.Errorf("%w: invalid event id", domain.ErrValidation))
+		return
+	}
+	if err := s.queries.ReplayPartnerDeadLetter(r.Context(), restaurantID, eventID); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *server) userID(r *http.Request) (uuid.UUID, error) {

@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -25,6 +27,7 @@ type restaurant struct {
 	client *http.Client
 	mu     sync.RWMutex
 	orders map[string]domain.Order
+	events map[string]struct{}
 }
 
 func main() {
@@ -35,6 +38,7 @@ func main() {
 		logger: logger,
 		client: &http.Client{Timeout: 5 * time.Second},
 		orders: make(map[string]domain.Order),
+		events: make(map[string]struct{}),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", app.health)
@@ -65,12 +69,26 @@ func (a *restaurant) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *restaurant) receiveOrder(w http.ResponseWriter, r *http.Request) {
+	eventID := strings.TrimSpace(r.Header.Get("X-Event-ID"))
+	eventType := strings.TrimSpace(r.Header.Get("X-Event-Type"))
+	eventVersion, versionErr := strconv.Atoi(r.Header.Get("X-Event-Version"))
+	if eventID == "" || r.Header.Get("Idempotency-Key") != eventID || eventType != "order.created" || versionErr != nil || eventVersion != 1 {
+		http.Error(w, "invalid event metadata", http.StatusBadRequest)
+		return
+	}
 	var order domain.Order
 	if err := json.NewDecoder(r.Body).Decode(&order); err != nil {
 		http.Error(w, "invalid order", http.StatusBadRequest)
 		return
 	}
 	a.mu.Lock()
+	_, duplicateEvent := a.events[eventID]
+	if duplicateEvent {
+		a.mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	a.events[eventID] = struct{}{}
 	_, alreadyReceived := a.orders[order.ID.String()]
 	a.orders[order.ID.String()] = order
 	a.mu.Unlock()

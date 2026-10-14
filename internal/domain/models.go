@@ -114,6 +114,16 @@ type Order struct {
 	CreatedAt        time.Time        `json:"createdAt"`
 }
 
+type OutboxFailure struct {
+	EventID        uuid.UUID `json:"eventId"`
+	OrderID        uuid.UUID `json:"orderId"`
+	EventType      string    `json:"eventType"`
+	EventVersion   int       `json:"eventVersion"`
+	Attempts       int       `json:"attempts"`
+	LastError      string    `json:"lastError"`
+	DeadLetteredAt time.Time `json:"deadLetteredAt"`
+}
+
 func CanTransition(from, to OrderStatus) bool {
 	allowed := map[OrderStatus]map[OrderStatus]bool{
 		OrderPending:    {OrderAccepted: true, OrderRejected: true, OrderCancelled: true},

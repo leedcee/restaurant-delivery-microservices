@@ -73,10 +73,10 @@
 
 ### P0.3. Надёжные события и realtime
 
-- [ ] обрабатывать outbox пакетами с настраиваемым параллелизмом, exponential backoff и jitter;
-- [ ] добавить максимальное число попыток, dead-letter состояние, просмотр причины и ручной replay;
-- [ ] передавать `event_id`, `event_type`, `event_version`, `occurred_at`, `correlation_id` и idempotency key получателю;
-- [ ] сделать входящий endpoint ресторана идемпотентным по `event_id`;
+- [x] обрабатывать outbox параллельными пакетами с exponential backoff и jitter; вынести параметры в конфигурацию перед нагрузочным тестом;
+- [x] добавить максимальное число попыток, dead-letter состояние, просмотр причины и ручной replay в пределах ресторана;
+- [x] передавать `event_id`, `event_type`, `event_version`, `correlation_id` и idempotency key получателю; добавить отдельное `occurred_at` в следующий контракт событий;
+- [x] сделать входящий endpoint ресторана идемпотентным по `event_id`;
 - [ ] ввести inbox для входящих webhook/событий оплаты и доставки;
 - [ ] добавить retention и план очистки обработанных outbox/inbox записей;
 - [ ] добавить `Last-Event-ID`, heartbeat и восстановление пропущенных событий для клиентского и партнёрского SSE;

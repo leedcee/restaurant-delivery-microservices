@@ -36,6 +36,38 @@ paths:
       description: |
         Endpoint вызывается обработчиком outbox. Успешный ответ означает, что
         заведение сохранило заказ для дальнейшей обработки, но ещё не завершило его.
+        Повтор события с тем же X-Event-ID обрабатывается идемпотентно.
+      parameters:
+        - name: X-Event-ID
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: X-Event-Type
+          in: header
+          required: true
+          schema:
+            type: string
+            enum: [order.created]
+        - name: X-Event-Version
+          in: header
+          required: true
+          schema:
+            type: integer
+            enum: [1]
+        - name: X-Correlation-ID
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:

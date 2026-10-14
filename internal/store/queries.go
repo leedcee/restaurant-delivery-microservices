@@ -166,6 +166,42 @@ func (q *Queries) AuthenticatePartner(ctx context.Context, apiKey string) (uuid.
 	return restaurantID, nil
 }
 
+func (q *Queries) ListPartnerDeadLetters(ctx context.Context, restaurantID uuid.UUID) ([]domain.OutboxFailure, error) {
+	rows, err := q.db.Query(ctx, `SELECT e.id, e.aggregate_id, e.event_type, e.event_version,
+		e.attempts, COALESCE(e.last_error, ''), e.dead_lettered_at
+		FROM outbox_events e JOIN orders o ON o.id = e.aggregate_id
+		WHERE o.restaurant_id = $1 AND e.dead_lettered_at IS NOT NULL
+		ORDER BY e.dead_lettered_at DESC LIMIT 100`, restaurantID)
+	if err != nil {
+		return nil, fmt.Errorf("list partner dead letters: %w", err)
+	}
+	defer rows.Close()
+	items := make([]domain.OutboxFailure, 0)
+	for rows.Next() {
+		var item domain.OutboxFailure
+		if err := rows.Scan(&item.EventID, &item.OrderID, &item.EventType, &item.EventVersion,
+			&item.Attempts, &item.LastError, &item.DeadLetteredAt); err != nil {
+			return nil, fmt.Errorf("scan partner dead letter: %w", err)
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (q *Queries) ReplayPartnerDeadLetter(ctx context.Context, restaurantID, eventID uuid.UUID) error {
+	command, err := q.db.Exec(ctx, `UPDATE outbox_events e
+		SET attempts = 0, available_at = now(), dead_lettered_at = NULL, last_error = NULL
+		FROM orders o WHERE e.id = $1 AND e.aggregate_id = o.id
+		  AND o.restaurant_id = $2 AND e.dead_lettered_at IS NOT NULL`, eventID, restaurantID)
+	if err != nil {
+		return fmt.Errorf("replay partner dead letter: %w", err)
+	}
+	if command.RowsAffected() != 1 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func (q *Queries) ReplaceMenu(ctx context.Context, restaurantID uuid.UUID, menu domain.PartnerMenu) error {
 	if err := validatePartnerMenu(menu); err != nil {
 		return err

@@ -525,6 +525,45 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '409':
           $ref: '#/components/responses/Conflict'
+  /partner/v1/outbox/dead-letters:
+    get:
+      summary: List failed integration events for the authenticated restaurant
+      tags: [Partner]
+      security:
+        - partnerApiKey: []
+      operationId: listPartnerDeadLetters
+      responses:
+        '200':
+          description: Dead-letter events, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OutboxFailure'
+  /partner/v1/outbox/dead-letters/{eventId}/replay:
+    post:
+      summary: Retry a dead-letter event owned by the authenticated restaurant
+      tags: [Partner]
+      security:
+        - partnerApiKey: []
+      operationId: replayPartnerDeadLetter
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Event returned to the delivery queue
+        '404':
+          $ref: '#/components/responses/NotFound'
 components:
   securitySchemes:
     bearerAuth:
@@ -906,3 +945,24 @@ components:
           type: string
         requestId:
           type: string
+    OutboxFailure:
+      type: object
+      required: [eventId, orderId, eventType, eventVersion, attempts, lastError, deadLetteredAt]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+        eventVersion:
+          type: integer
+        attempts:
+          type: integer
+        lastError:
+          type: string
+        deadLetteredAt:
+          type: string
+          format: date-time

@@ -237,6 +237,47 @@ func TestNegativeAndReliabilityScenarios(t *testing.T) {
 		}, "outbox did not deliver and complete order after restaurant recovery")
 	})
 
+	t.Run("outbox exhausts retries into dead letter", func(t *testing.T) {
+		productID := publishSingleProduct(t, client, "dead-letter", 1)
+		setOrderEndpoint(t, db, brokenEndpoint)
+		t.Cleanup(func() { restoreOrderEndpoint(t, db) })
+		order := createOrder(t, client, newDraft(productID, 1))
+		if _, err := db.Exec(t.Context(), `UPDATE outbox_events
+			SET attempts = 7, available_at = now() WHERE aggregate_id = $1`, order.ID); err != nil {
+			t.Fatalf("prepare final outbox attempt: %v", err)
+		}
+		waitFor(t, 8*time.Second, func() bool {
+			var attempts int
+			var deadLettered bool
+			err := db.QueryRow(t.Context(), `SELECT attempts, dead_lettered_at IS NOT NULL
+				FROM outbox_events WHERE aggregate_id = $1`, order.ID).Scan(&attempts, &deadLettered)
+			return err == nil && attempts == 8 && deadLettered
+		}, "outbox event was not moved to dead letter")
+		var failures struct {
+			Items []domain.OutboxFailure `json:"items"`
+		}
+		doJSON(t, client, http.MethodGet, baseURL+"/partner/v1/outbox/dead-letters", nil,
+			map[string]string{"X-API-Key": "demo-secret"}, http.StatusOK, &failures)
+		var eventID uuid.UUID
+		for _, failure := range failures.Items {
+			if failure.OrderID == order.ID {
+				eventID = failure.EventID
+			}
+		}
+		if eventID == uuid.Nil {
+			t.Fatalf("dead-letter event is absent from partner API: %+v", failures.Items)
+		}
+		restoreOrderEndpoint(t, db)
+		doJSON(t, client, http.MethodPost,
+			baseURL+"/partner/v1/outbox/dead-letters/"+eventID.String()+"/replay", nil,
+			map[string]string{"X-API-Key": "demo-secret"}, http.StatusNoContent, nil)
+		waitFor(t, 10*time.Second, func() bool {
+			var processed bool
+			err := db.QueryRow(t.Context(), `SELECT processed_at IS NOT NULL FROM outbox_events WHERE id = $1`, eventID).Scan(&processed)
+			return err == nil && processed
+		}, "replayed dead-letter event was not delivered")
+	})
+
 	t.Run("concurrent orders cannot oversell last item", func(t *testing.T) {
 		productID := publishSingleProduct(t, client, "concurrency", 1)
 		draft := newDraft(productID, 1)
