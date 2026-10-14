@@ -90,12 +90,12 @@
 - [ ] добавить единый OpenTelemetry SDK в API, worker и demo restaurant;
 - [ ] принимать и передавать W3C `traceparent`, `tracestate` и baggage между HTTP-вызовами и событиями;
 - [ ] писать структурированные JSON-логи с `service`, `environment`, `version`, `request_id`, `trace_id`, `span_id`, `order_id` и `restaurant_id`;
-- [ ] добавить `/metrics` для Prometheus;
-- [ ] поднять локальный observability profile в Compose: Prometheus, Grafana, Loki, Tempo и OpenTelemetry Collector;
-- [ ] настроить provisioning datasources и dashboards как код;
+- [x] добавить `/metrics` для Prometheus с RED, Go runtime, PostgreSQL pool и outbox-метриками;
+- [ ] поднять полный локальный observability profile в Compose: Prometheus и Grafana готовы; Loki, Tempo и OpenTelemetry Collector остаются следующим шагом;
+- [x] настроить provisioning Prometheus datasource, базовый dashboard и alert rules как код;
 - [ ] добавить exemplars: переход из графика latency в trace и из trace в связанные логи;
 - [ ] описать правила cardinality и запретить `user_id`, `order_id`, URL с UUID, email и address в labels;
-- [ ] добавить runbook к каждому критическому алерту.
+- [ ] добавить runbook к каждому критическому алерту: базовые API/outbox runbooks готовы, расширять вместе с новыми SLI.
 
 Минимальный набор метрик:
 

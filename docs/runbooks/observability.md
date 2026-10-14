@@ -1,0 +1,33 @@
+# Runbook: базовая наблюдаемость
+
+Локальный контур запускается командой `make observability-up`. Prometheus доступен на `http://localhost:9090`, Grafana — на `http://localhost:3000` с логином `admin` и паролем из `GRAFANA_ADMIN_PASSWORD` (`admin` по умолчанию только для локальной разработки).
+
+## PlatformAPIDown
+
+1. Проверить `http://localhost:8080/health/live` и `http://localhost:8080/health/ready`.
+2. Проверить состояние контейнеров и последние логи `platform-api`.
+3. Если liveness работает, а readiness нет, проверить PostgreSQL и строку подключения.
+4. После восстановления убедиться, что Prometheus target `platform-api` имеет состояние `UP`.
+
+## PlatformAPIHighErrorRate
+
+1. На dashboard `Service Overview` определить маршруты и статусы с ростом ошибок.
+2. Сопоставить интервал с JSON-логами API по `request_id`.
+3. Проверить доступность PostgreSQL и заполнение пула соединений.
+4. Не отключать алерт до устранения причины; единичные клиентские 4xx в него не входят.
+
+## OutboxDeliveryStalled
+
+1. Проверить `outbox_backlog_events` и `outbox_oldest_event_age_seconds`.
+2. Проверить доступность restaurant endpoint и логи worker по `event_id` и `order_id`.
+3. Убедиться, что новые попытки выполняются и значение `attempts` растёт.
+4. После восстановления дождаться уменьшения backlog до нуля.
+
+## OutboxDeadLettersPresent
+
+1. Получить список через `GET /partner/v1/outbox/dead-letters` с API-ключом нужного ресторана.
+2. Устранить причину постоянной ошибки интеграции.
+3. Переиграть событие через `POST /partner/v1/outbox/dead-letters/{eventID}/replay`.
+4. Убедиться, что событие обработано один раз, а счётчик dead-letter уменьшился.
+
+Метрики используют только ограниченные labels `method`, шаблон `route` и `status`. UUID, пользовательские данные, адреса, email, JWT и API-ключи в labels не добавляются.

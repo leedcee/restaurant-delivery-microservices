@@ -42,6 +42,8 @@
 - кабинет ресторана: вход по API key, realtime-очередь заказов с автоматическим переподключением, управление статусами и адаптивный редактор меню;
 - отдельные URL экранов и восстановление корзины после перезагрузки;
 - состояния загрузки, ошибок и повтор запросов;
+- Prometheus endpoint с RED, Go runtime, PostgreSQL pool и outbox-метриками;
+- готовый локальный профиль Prometheus + Grafana с dashboard и стартовыми alert rules;
 - OpenAPI-контракты, C4, ER, sequence-диаграмма и CJM;
 - unit- и E2E-тесты, включая конкурентное списание последнего товара.
 
@@ -95,6 +97,18 @@ curl http://localhost:8080/api/v1/restaurants
 ```
 
 После запуска загружаются три ресторанных fixture. Все они принимают заказы через демонстрационный интеграционный сервис и автоматически проводят заказ до статуса `delivered`.
+
+Для запуска базового контура наблюдаемости вместе с приложением:
+
+```bash
+make observability-up
+```
+
+После запуска дополнительно доступны Prometheus на `http://localhost:9090`, Grafana на `http://localhost:3000` и метрики API на `http://localhost:8080/metrics`. Grafana автоматически получает Prometheus datasource и dashboard `Restaurant Delivery / Service Overview`. Локальные учётные данные по умолчанию — `admin` / `admin`; их можно переопределить через `GRAFANA_ADMIN_USER` и `GRAFANA_ADMIN_PASSWORD`.
+
+Prometheus хранит локальные метрики семь дней и загружает стартовые алерты для недоступности API, высокой доли 5xx, остановки outbox и появления dead-letter событий. Инструкции по реакции находятся в [runbook наблюдаемости](docs/runbooks/observability.md).
+
+Порты Prometheus и Grafana в локальном Compose привязаны только к loopback-интерфейсу. При внешнем развёртывании `/metrics` также должен оставаться во внутренней сети и не публиковаться через пользовательский reverse proxy.
 
 Для просмотра отдельных партнёрских кабинетов используйте ключи:
 

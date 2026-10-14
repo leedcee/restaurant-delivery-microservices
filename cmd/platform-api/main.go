@@ -14,6 +14,7 @@ import (
 	"restaurant-delivery-system/internal/config"
 	"restaurant-delivery-system/internal/httpapi"
 	"restaurant-delivery-system/internal/integration"
+	"restaurant-delivery-system/internal/observability"
 	"restaurant-delivery-system/internal/store"
 )
 
@@ -38,13 +39,14 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+	metrics := observability.New(db)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.New(db, logger, cfg.JWTSecret, cfg.CookieSecure, cfg.AllowedOrigins),
+		Handler:           httpapi.New(db, logger, cfg.JWTSecret, cfg.CookieSecure, cfg.AllowedOrigins, metrics),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		IdleTimeout:       60 * time.Second,

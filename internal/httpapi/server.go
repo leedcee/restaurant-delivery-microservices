@@ -13,6 +13,7 @@ import (
 
 	"restaurant-delivery-system/internal/domain"
 	"restaurant-delivery-system/internal/identity"
+	"restaurant-delivery-system/internal/observability"
 	"restaurant-delivery-system/internal/orders"
 	"restaurant-delivery-system/internal/store"
 
@@ -35,17 +36,19 @@ type server struct {
 const refreshCookieName = "looch_refresh"
 
 // New creates the HTTP handler for the main API.
-func New(db *pgxpool.Pool, logger *slog.Logger, jwtSecret string, cookieSecure bool, allowedOrigins []string) http.Handler {
+func New(db *pgxpool.Pool, logger *slog.Logger, jwtSecret string, cookieSecure bool, allowedOrigins []string, metrics *observability.Metrics) http.Handler {
 	server := &server{db: db, logger: logger, queries: store.NewQueries(db), orders: orders.New(db), identity: identity.New(db, jwtSecret), partnerOrderEvents: newPartnerOrderHub(), cookieSecure: cookieSecure}
 	limiter := newRateLimiter()
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
+	router.Use(metrics.Middleware)
 	router.Use(middleware.Recoverer)
 	router.Use(requestTimeout(10 * time.Second))
 	router.Use(securityHeaders)
 	router.Use(cors(allowedOrigins))
 	router.Get("/health/live", server.live)
 	router.Get("/health/ready", server.ready)
+	router.Handle("/metrics", metrics.Handler())
 	router.Get("/api/v1/restaurants", server.listRestaurants)
 	router.Get("/api/v1/restaurants/{restaurantID}/menu", server.getMenu)
 	router.With(limiter.middleware("register", 30, time.Minute)).Post("/api/v1/auth/register", server.register)

@@ -1,0 +1,94 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Requests / sec",
+      "id": 1,
+      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
+      "targets": [{"expr": "sum(rate(http_server_requests_total{job=\"platform-api\"}[5m]))", "legendFormat": "requests/s", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
+    },
+    {
+      "type": "stat",
+      "title": "5xx error rate",
+      "id": 2,
+      "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0},
+      "targets": [{"expr": "sum(rate(http_server_requests_total{job=\"platform-api\",status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_server_requests_total{job=\"platform-api\"}[5m])), 0.001)", "legendFormat": "errors", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 0.05}]}}, "overrides": []}
+    },
+    {
+      "type": "stat",
+      "title": "Active requests",
+      "id": 3,
+      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
+      "targets": [{"expr": "http_server_active_requests{job=\"platform-api\"}", "refId": "A"}],
+      "fieldConfig": {"defaults": {}, "overrides": []}
+    },
+    {
+      "type": "stat",
+      "title": "Go goroutines",
+      "id": 4,
+      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0},
+      "targets": [{"expr": "go_goroutines{job=\"platform-api\"}", "refId": "A"}],
+      "fieldConfig": {"defaults": {}, "overrides": []}
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP latency by route",
+      "id": 5,
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le, route) (rate(http_server_request_duration_seconds_bucket{job=\"platform-api\"}[5m])))", "legendFormat": "p50 {{route}}", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (le, route) (rate(http_server_request_duration_seconds_bucket{job=\"platform-api\"}[5m])))", "legendFormat": "p95 {{route}}", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, sum by (le, route) (rate(http_server_request_duration_seconds_bucket{job=\"platform-api\"}[5m])))", "legendFormat": "p99 {{route}}", "refId": "C"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests by route and status",
+      "id": 6,
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 8},
+      "targets": [{"expr": "sum by (route, status) (rate(http_server_requests_total{job=\"platform-api\"}[5m]))", "legendFormat": "{{status}} {{route}}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
+    },
+    {
+      "type": "timeseries",
+      "title": "Outbox health",
+      "id": 7,
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 17},
+      "targets": [
+        {"expr": "outbox_backlog_events", "legendFormat": "backlog", "refId": "A"},
+        {"expr": "outbox_dead_letter_events", "legendFormat": "dead letters", "refId": "B"},
+        {"expr": "outbox_oldest_event_age_seconds", "legendFormat": "oldest age (s)", "refId": "C"}
+      ],
+      "fieldConfig": {"defaults": {}, "overrides": []}
+    },
+    {
+      "type": "timeseries",
+      "title": "PostgreSQL pool",
+      "id": 8,
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 17},
+      "targets": [
+        {"expr": "postgres_pool_total_connections", "legendFormat": "total", "refId": "A"},
+        {"expr": "postgres_pool_acquired_connections", "legendFormat": "acquired", "refId": "B"},
+        {"expr": "postgres_pool_idle_connections", "legendFormat": "idle", "refId": "C"},
+        {"expr": "postgres_pool_empty_acquire_count", "legendFormat": "empty acquire count", "refId": "D"}
+      ],
+      "fieldConfig": {"defaults": {}, "overrides": []}
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "tags": ["restaurant-delivery", "prometheus"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timezone": "browser",
+  "title": "Service Overview",
+  "uid": "restaurant-delivery-overview",
+  "version": 1
+}
+

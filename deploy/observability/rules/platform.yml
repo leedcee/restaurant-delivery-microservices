@@ -1,0 +1,43 @@
+groups:
+  - name: platform
+    rules:
+      - alert: PlatformAPIDown
+        expr: up{job="platform-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Platform API is unavailable to Prometheus
+          runbook_url: docs/runbooks/observability.md#platformapidown
+
+      - alert: PlatformAPIHighErrorRate
+        expr: |
+          sum(rate(http_server_requests_total{job="platform-api",status=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(http_server_requests_total{job="platform-api"}[5m])), 0.001)
+          > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: More than 5% of Platform API requests return 5xx
+          runbook_url: docs/runbooks/observability.md#platformapihigherrorrate
+
+      - alert: OutboxDeliveryStalled
+        expr: outbox_backlog_events > 0 and outbox_oldest_event_age_seconds > 60
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: The oldest pending outbox event is more than one minute old
+          runbook_url: docs/runbooks/observability.md#outboxdeliverystalled
+
+      - alert: OutboxDeadLettersPresent
+        expr: outbox_dead_letter_events > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Outbox contains dead-letter events requiring review
+          runbook_url: docs/runbooks/observability.md#outboxdeadletterspresent
+

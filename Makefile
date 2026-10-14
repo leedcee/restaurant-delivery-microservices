@@ -1,4 +1,4 @@
-.PHONY: build test test-e2e lint fmt diagrams up down logs
+.PHONY: build test test-e2e lint fmt diagrams up down logs observability-up observability-down
 
 build:
 	go build ./...
@@ -36,3 +36,9 @@ down:
 
 logs:
 	docker compose logs -f
+
+observability-up:
+	docker compose --profile observability up --build -d
+
+observability-down:
+	docker compose --profile observability down
