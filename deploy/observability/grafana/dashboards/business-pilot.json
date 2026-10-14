@@ -1,0 +1,60 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {
+      "type": "stat", "title": "Orders", "id": 1,
+      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "format": 1, "rawSql": "SELECT count() AS orders FROM analytics.raw_events FINAL WHERE event_name = 'order_created' AND $__timeFilter(occurred_at)"}],
+      "fieldConfig": {"defaults": {}, "overrides": []}
+    },
+    {
+      "type": "stat", "title": "GMV", "id": 2,
+      "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "format": 1, "rawSql": "SELECT sum(JSONExtractInt(properties, 'total_minor')) / 100 AS gmv FROM analytics.raw_events FINAL WHERE event_name = 'order_created' AND $__timeFilter(occurred_at)"}],
+      "fieldConfig": {"defaults": {"unit": "currencyRUB"}, "overrides": []}
+    },
+    {
+      "type": "stat", "title": "Average check", "id": 3,
+      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "format": 1, "rawSql": "SELECT avg(JSONExtractInt(properties, 'total_minor')) / 100 AS average_check FROM analytics.raw_events FINAL WHERE event_name = 'order_created' AND $__timeFilter(occurred_at)"}],
+      "fieldConfig": {"defaults": {"unit": "currencyRUB"}, "overrides": []}
+    },
+    {
+      "type": "stat", "title": "Cancellation rate", "id": 4,
+      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "format": 1, "rawSql": "SELECT countIf(JSONExtractString(properties, 'to_status') IN ('cancelled', 'rejected')) / greatest(countIf(event_name = 'order_created'), 1) AS cancellation_rate FROM analytics.raw_events FINAL WHERE $__timeFilter(occurred_at)"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []}
+    },
+    {
+      "type": "timeseries", "title": "Order funnel", "id": 5,
+      "gridPos": {"h": 10, "w": 12, "x": 0, "y": 8},
+      "datasource": {"type": "grafana-clickhouse-datasource", "uid": "clickhouse"},
+      "targets": [{"refId": "A", "format": 0, "rawSql": "SELECT toStartOfHour(occurred_at) AS time, if(event_name = 'order_created', 'created', JSONExtractString(properties, 'to_status')) AS status, count() AS value FROM analytics.raw_events FINAL WHERE $__timeFilter(occurred_at) GROUP BY time, status ORDER BY time"}],
+      "fieldConfig": {"defaults": {}, "overrides": []}
+    },
+    {
+      "type": "timeseries", "title": "Analytics ingestion", "id": 6,
+      "gridPos": {"h": 10, "w": 12, "x": 12, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "analytics_backlog_events", "legendFormat": "backlog"},
+        {"refId": "B", "expr": "analytics_ingestion_lag_seconds", "legendFormat": "lag seconds"},
+        {"refId": "C", "expr": "analytics_dead_letter_events", "legendFormat": "dead letters"}
+      ],
+      "fieldConfig": {"defaults": {}, "overrides": []}
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["restaurant-delivery", "clickhouse", "business"],
+  "time": {"from": "now-24h", "to": "now"},
+  "timezone": "browser",
+  "title": "Business Pilot",
+  "uid": "restaurant-delivery-business",
+  "version": 1
+}

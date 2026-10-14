@@ -41,3 +41,12 @@ groups:
           summary: Outbox contains dead-letter events requiring review
           runbook_url: docs/runbooks/observability.md#outboxdeadletterspresent
 
+      - alert: AnalyticsIngestionStalled
+        expr: analytics_backlog_events > 0 and analytics_ingestion_lag_seconds > 300
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Analytics events have not reached ClickHouse for more than five minutes
+          runbook_url: docs/runbooks/observability.md#analyticsingestionstalled
+

@@ -32,7 +32,22 @@ func New(db *pgxpool.Pool) *Metrics {
 	registry.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}), m.requests, m.duration, m.active)
 	m.registerDatabase(db)
 	m.registerOutbox(db)
+	m.registerAnalytics(db)
 	return m
+}
+
+func (m *Metrics) registerAnalytics(db *pgxpool.Pool) {
+	m.registry.MustRegister(
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: "analytics_backlog_events", Help: "Analytics events waiting for ClickHouse ingestion."}, func() float64 {
+			return queryFloat(db, `SELECT count(*)::double precision FROM analytics_events WHERE processed_at IS NULL AND dead_lettered_at IS NULL`)
+		}),
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: "analytics_dead_letter_events", Help: "Analytics events that exhausted delivery attempts."}, func() float64 {
+			return queryFloat(db, `SELECT count(*)::double precision FROM analytics_events WHERE dead_lettered_at IS NOT NULL`)
+		}),
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: "analytics_ingestion_lag_seconds", Help: "Age of the oldest analytics event waiting for ingestion."}, func() float64 {
+			return queryFloat(db, `SELECT COALESCE(EXTRACT(EPOCH FROM now() - min(occurred_at)), 0) FROM analytics_events WHERE processed_at IS NULL AND dead_lettered_at IS NULL`)
+		}),
+	)
 }
 
 func (m *Metrics) Handler() http.Handler {

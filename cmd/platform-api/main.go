@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"restaurant-delivery-system/internal/analytics"
 	"restaurant-delivery-system/internal/config"
 	"restaurant-delivery-system/internal/httpapi"
 	"restaurant-delivery-system/internal/integration"
@@ -64,6 +65,7 @@ func main() {
 		MaxHeaderBytes:    1 << 20,
 	}
 	go integration.NewWorker(db, logger).Run(ctx)
+	go analytics.NewWorker(db, logger, os.Getenv("CLICKHOUSE_URL"), envOrDefault("CLICKHOUSE_USER", "analytics"), os.Getenv("CLICKHOUSE_PASSWORD")).Run(ctx)
 
 	go func() {
 		logger.Info("platform API started", "address", cfg.HTTPAddr)

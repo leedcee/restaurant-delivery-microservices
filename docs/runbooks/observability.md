@@ -32,3 +32,10 @@
 4. Убедиться, что событие обработано один раз, а счётчик dead-letter уменьшился.
 
 Метрики используют только ограниченные labels `method`, шаблон `route` и `status`. UUID, пользовательские данные, адреса, email, JWT и API-ключи в labels не добавляются.
+
+## AnalyticsIngestionStalled
+
+1. Проверить `analytics_backlog_events`, `analytics_ingestion_lag_seconds` и `analytics_dead_letter_events` на dashboard `Business Pilot`.
+2. Проверить health ClickHouse через `http://localhost:8123/ping` и логи `clickhouse`/`platform-api`.
+3. После восстановления убедиться, что backlog уменьшается; worker повторяет временные ошибки автоматически.
+4. Для dead-letter события сначала устранить ошибку схемы или доступа, затем вернуть запись в очередь административным SQL с обнулением `dead_lettered_at`, `attempts` и `available_at = now()`.

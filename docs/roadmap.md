@@ -187,14 +187,14 @@
 
 ClickHouse вводится после стабилизации версий доменных событий. Он получает копии событий асинхронно и не влияет на транзакционный контур.
 
-- [ ] утвердить схему аналитического события: `event_id`, `event_version`, `event_name`, `occurred_at`, `ingested_at`, `trace_id`, обезличенные измерения и properties;
-- [ ] публиковать `order_created`, `order_status_changed`, `payment_*`, `delivery_*`, `notification_*` и frontend funnel events;
-- [ ] доставлять события через broker/collector в raw MergeTree таблицу ClickHouse;
-- [ ] дедуплицировать события по `event_id` и мониторить ingestion lag;
+- [x] утвердить схему аналитического события: `event_id`, `event_version`, `event_name`, `occurred_at`, `ingested_at`, `trace_id` и обезличенные properties;
+- [ ] публиковать доменные и frontend funnel events: `order_created` и `order_status_changed` готовы; payment, delivery, notification и frontend появятся вместе с соответствующими модулями;
+- [x] доставлять события из отдельного transactional analytics outbox в raw `ReplacingMergeTree` таблицу ClickHouse;
+- [x] дедуплицировать события по `event_id` и мониторить ingestion backlog, lag и dead letters;
 - [ ] создать materialized views для order funnel, GMV, conversion, cancellations, restaurant SLA и delivery time;
-- [ ] подключить ClickHouse datasource к Grafana для бизнес-панелей;
-- [ ] отделить техническую телеметрию Prometheus от бизнес-аналитики ClickHouse;
-- [ ] добавить TTL, партиционирование, политику удаления пользователя и словарь данных;
+- [x] подключить ClickHouse datasource к Grafana и добавить dashboard `Business Pilot`;
+- [x] отделить техническую телеметрию Prometheus от бизнес-аналитики ClickHouse;
+- [ ] добавить TTL, партиционирование, политику удаления пользователя и словарь данных: годовой TTL и месячные партиции готовы, политика удаления и полный словарь остаются;
 - [ ] сверять ключевые агрегаты ClickHouse с PostgreSQL и алертить расхождения;
 - [ ] провести нагрузочный тест ingestion и тяжёлых dashboard queries.
 

@@ -10,12 +10,14 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"restaurant-delivery-system/internal/domain"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Service struct {
@@ -174,6 +176,14 @@ func (s *Service) Create(
 	if err != nil {
 		return domain.Order{}, false, fmt.Errorf("create outbox event: %w", err)
 	}
+	_, err = tx.Exec(ctx, `INSERT INTO analytics_events (event_name, event_version, trace_id, properties, occurred_at)
+		VALUES ('order_created', 1, $1, jsonb_build_object(
+			'order_key', encode(digest($2::text, 'sha256'), 'hex'),
+			'restaurant_id', $3::text, 'total_minor', $4, 'currency', $5, 'status', 'pending'), $6)`,
+		traceID(ctx), order.ID, order.RestaurantID, order.TotalMinor, order.Currency, order.CreatedAt)
+	if err != nil {
+		return domain.Order{}, false, fmt.Errorf("create analytics event: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Order{}, false, fmt.Errorf("commit order: %w", err)
 	}
@@ -269,7 +279,7 @@ func (s *Service) transitionStatus(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	query := `SELECT status, version FROM orders WHERE id = $1`
+	query := `SELECT status, version, restaurant_id, created_at FROM orders WHERE id = $1`
 	args := []any{orderID}
 	if userID != uuid.Nil {
 		query += ` AND user_id = $2`
@@ -281,7 +291,9 @@ func (s *Service) transitionStatus(
 	query += ` FOR UPDATE`
 	var current domain.OrderStatus
 	var currentVersion int64
-	err = tx.QueryRow(ctx, query, args...).Scan(&current, &currentVersion)
+	var eventRestaurantID uuid.UUID
+	var orderCreatedAt time.Time
+	err = tx.QueryRow(ctx, query, args...).Scan(&current, &currentVersion, &eventRestaurantID, &orderCreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Order{}, domain.ErrNotFound
 	}
@@ -335,10 +347,28 @@ func (s *Service) transitionStatus(
 	if err != nil {
 		return domain.Order{}, fmt.Errorf("record order status: %w", err)
 	}
+	_, err = tx.Exec(ctx, `INSERT INTO analytics_events (event_name, event_version, trace_id, properties)
+		VALUES ('order_status_changed', 1, $1, jsonb_build_object(
+			'order_key', encode(digest($2::text, 'sha256'), 'hex'),
+			'restaurant_id', $3::text, 'order_created_at', $4::timestamptz,
+			'from_status', $5::text, 'to_status', $6::text, 'source', $7, 'reason_code', $8::text))`,
+		traceID(ctx), orderID, eventRestaurantID, orderCreatedAt, current, status, source, reasonCode)
+	if err != nil {
+		return domain.Order{}, fmt.Errorf("create status analytics event: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Order{}, fmt.Errorf("commit order status: %w", err)
 	}
 	return getOrder(ctx, s.db, orderID, userID, restaurantID)
+}
+
+func traceID(ctx context.Context) *string {
+	spanContext := trace.SpanContextFromContext(ctx)
+	if !spanContext.IsValid() {
+		return nil
+	}
+	value := spanContext.TraceID().String()
+	return &value
 }
 
 type rowQuerier interface {
