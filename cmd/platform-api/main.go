@@ -44,8 +44,11 @@ func main() {
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.New(db, logger, cfg.JWTSecret, cfg.CookieSecure),
+		Handler:           httpapi.New(db, logger, cfg.JWTSecret, cfg.CookieSecure, cfg.AllowedOrigins),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 	go integration.NewWorker(db, logger).Run(ctx)
 

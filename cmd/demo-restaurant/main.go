@@ -39,7 +39,10 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", app.health)
 	mux.HandleFunc("POST /integration/v1/orders", app.receiveOrder)
-	server := &http.Server{Addr: cfg.HTTPAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{
+		Addr: cfg.HTTPAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20,
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go app.publishMenuUntilReady(ctx)

@@ -10,10 +10,11 @@ import (
 
 // Platform contains configuration for the main API service.
 type Platform struct {
-	HTTPAddr     string
-	DatabaseURL  string
-	JWTSecret    string
-	CookieSecure bool
+	HTTPAddr       string
+	DatabaseURL    string
+	JWTSecret      string
+	CookieSecure   bool
+	AllowedOrigins []string
 }
 
 // DemoRestaurant contains configuration for the example partner service.
@@ -27,9 +28,10 @@ type DemoRestaurant struct {
 // PlatformFromEnv returns validated main API configuration.
 func PlatformFromEnv() (Platform, error) {
 	cfg := Platform{
-		HTTPAddr:    valueOrDefault("PLATFORM_HTTP_ADDR", ":8080"),
-		DatabaseURL: os.Getenv("DATABASE_URL"),
-		JWTSecret:   valueOrDefault("JWT_SECRET", "dev-only-change-me"),
+		HTTPAddr:       valueOrDefault("PLATFORM_HTTP_ADDR", ":8080"),
+		DatabaseURL:    os.Getenv("DATABASE_URL"),
+		JWTSecret:      valueOrDefault("JWT_SECRET", "dev-only-change-me"),
+		AllowedOrigins: splitList(valueOrDefault("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")),
 	}
 	secure, err := strconv.ParseBool(valueOrDefault("SESSION_COOKIE_SECURE", "false"))
 	if err != nil {
@@ -40,6 +42,16 @@ func PlatformFromEnv() (Platform, error) {
 		return Platform{}, fmt.Errorf("DATABASE_URL is required")
 	}
 	return cfg, nil
+}
+
+func splitList(value string) []string {
+	result := make([]string, 0)
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 // DemoRestaurantFromEnv returns demo restaurant configuration.

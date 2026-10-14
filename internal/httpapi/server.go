@@ -35,21 +35,22 @@ type server struct {
 const refreshCookieName = "looch_refresh"
 
 // New creates the HTTP handler for the main API.
-func New(db *pgxpool.Pool, logger *slog.Logger, jwtSecret string, cookieSecure bool) http.Handler {
+func New(db *pgxpool.Pool, logger *slog.Logger, jwtSecret string, cookieSecure bool, allowedOrigins []string) http.Handler {
 	server := &server{db: db, logger: logger, queries: store.NewQueries(db), orders: orders.New(db), identity: identity.New(db, jwtSecret), partnerOrderEvents: newPartnerOrderHub(), cookieSecure: cookieSecure}
+	limiter := newRateLimiter()
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
-	router.Use(middleware.RealIP)
 	router.Use(middleware.Recoverer)
 	router.Use(requestTimeout(10 * time.Second))
-	router.Use(cors)
+	router.Use(securityHeaders)
+	router.Use(cors(allowedOrigins))
 	router.Get("/health/live", server.live)
 	router.Get("/health/ready", server.ready)
 	router.Get("/api/v1/restaurants", server.listRestaurants)
 	router.Get("/api/v1/restaurants/{restaurantID}/menu", server.getMenu)
-	router.Post("/api/v1/auth/register", server.register)
-	router.Post("/api/v1/auth/login", server.login)
-	router.Post("/api/v1/auth/refresh", server.refresh)
+	router.With(limiter.middleware("register", 30, time.Minute)).Post("/api/v1/auth/register", server.register)
+	router.With(limiter.middleware("login", 10, time.Minute)).Post("/api/v1/auth/login", server.login)
+	router.With(limiter.middleware("refresh", 30, time.Minute)).Post("/api/v1/auth/refresh", server.refresh)
 	router.Post("/api/v1/auth/logout", server.logout)
 	router.Post("/api/v1/auth/logout-all", server.logoutAll)
 	router.Get("/api/v1/auth/me", server.me)
@@ -57,9 +58,9 @@ func New(db *pgxpool.Pool, logger *slog.Logger, jwtSecret string, cookieSecure b
 	router.Post("/api/v1/addresses", server.createAddress)
 	router.Patch("/api/v1/addresses/{addressID}", server.updateAddress)
 	router.Delete("/api/v1/addresses/{addressID}", server.deleteAddress)
-	router.Post("/api/v1/orders/quote", server.quoteOrder)
+	router.With(limiter.middleware("quote", 120, time.Minute)).Post("/api/v1/orders/quote", server.quoteOrder)
 	router.Get("/api/v1/orders", server.listUserOrders)
-	router.Post("/api/v1/orders", server.createOrder)
+	router.With(limiter.middleware("order-create", 30, time.Minute)).Post("/api/v1/orders", server.createOrder)
 	router.Get("/api/v1/orders/{orderID}", server.getOrder)
 	router.Post("/api/v1/orders/{orderID}/cancel", server.cancelOrder)
 	router.Get("/api/v1/orders/{orderID}/events", server.streamOrder)
@@ -636,17 +637,45 @@ func (s *server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	})
 }
 
-func cors(next http.Handler) http.Handler {
+func cors(allowedOrigins []string) func(http.Handler) http.Handler {
+	allowed := make(map[string]struct{}, len(allowedOrigins))
+	for _, origin := range allowedOrigins {
+		allowed[origin] = struct{}{}
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Request-ID", middleware.GetReqID(r.Context()))
+			origin := r.Header.Get("Origin")
+			if _, ok := allowed[origin]; origin != "" && ok {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				w.Header().Set("Vary", "Origin")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key, Idempotency-Key")
+				w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, Retry-After")
+			}
+			if r.Method == http.MethodOptions {
+				if origin != "" {
+					if _, ok := allowed[origin]; !ok {
+						http.Error(w, "origin is not allowed", http.StatusForbidden)
+						return
+					}
+				}
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Request-ID", middleware.GetReqID(r.Context()))
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key, Idempotency-Key")
-		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
 		next.ServeHTTP(w, r)
 	})
 }

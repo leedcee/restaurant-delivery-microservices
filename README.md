@@ -103,7 +103,7 @@ curl http://localhost:8080/api/v1/restaurants
 | Паста Лаб | `pasta-secret` |
 | Рис и рыба | `sushi-secret` |
 
-Для локальной разработки используются `JWT_SECRET=dev-only-change-me` и cookie без флага `Secure`. Перед любым внешним развёртыванием задайте собственный длинный случайный JWT-секрет через `.env` или secrets manager и установите `SESSION_COOKIE_SECURE=true`; внешний контур должен работать только через HTTPS.
+Для локальной разработки используются `JWT_SECRET=dev-only-change-me` и cookie без флага `Secure`. Перед любым внешним развёртыванием задайте собственный длинный случайный JWT-секрет через `.env` или secrets manager, установите `SESSION_COOKIE_SECURE=true` и перечислите публичные адреса web-клиента в `CORS_ALLOWED_ORIGINS`; внешний контур должен работать только через HTTPS. API также выставляет security headers и ограничивает частоту auth, quote и create-запросов по адресу непосредственного клиента.
 
 Для отдельной frontend-разработки:
 
