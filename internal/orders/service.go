@@ -179,7 +179,7 @@ func (s *Service) Create(
 	_, err = tx.Exec(ctx, `INSERT INTO analytics_events (event_name, event_version, trace_id, properties, occurred_at)
 		VALUES ('order_created', 1, $1, jsonb_build_object(
 			'order_key', encode(digest($2::text, 'sha256'), 'hex'),
-			'restaurant_id', $3::text, 'total_minor', $4, 'currency', $5, 'status', 'pending'), $6)`,
+			'restaurant_id', $3::text, 'total_minor', $4::bigint, 'currency', $5::text, 'status', 'pending'), $6)`,
 		traceID(ctx), order.ID, order.RestaurantID, order.TotalMinor, order.Currency, order.CreatedAt)
 	if err != nil {
 		return domain.Order{}, false, fmt.Errorf("create analytics event: %w", err)
@@ -351,7 +351,7 @@ func (s *Service) transitionStatus(
 		VALUES ('order_status_changed', 1, $1, jsonb_build_object(
 			'order_key', encode(digest($2::text, 'sha256'), 'hex'),
 			'restaurant_id', $3::text, 'order_created_at', $4::timestamptz,
-			'from_status', $5::text, 'to_status', $6::text, 'source', $7, 'reason_code', $8::text))`,
+			'from_status', $5::text, 'to_status', $6::text, 'source', $7::text, 'reason_code', $8::text))`,
 		traceID(ctx), orderID, eventRestaurantID, orderCreatedAt, current, status, source, reasonCode)
 	if err != nil {
 		return domain.Order{}, fmt.Errorf("create status analytics event: %w", err)

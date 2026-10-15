@@ -73,6 +73,26 @@ func TestOrderJourney(t *testing.T) {
 	}
 	var created domain.Order
 	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/orders", draft, headers, http.StatusCreated, &created)
+	db := openTestDB(t)
+	defer db.Close()
+	var analyticsProperties []byte
+	if err := db.QueryRow(t.Context(), `SELECT properties FROM analytics_events
+		WHERE event_name = 'order_created'
+		  AND properties->>'order_key' = encode(digest($1::text, 'sha256'), 'hex')`, created.ID).Scan(&analyticsProperties); err != nil {
+		t.Fatalf("order_created analytics event was not recorded: %v", err)
+	}
+	var properties map[string]any
+	if err := json.Unmarshal(analyticsProperties, &properties); err != nil {
+		t.Fatalf("decode analytics properties: %v", err)
+	}
+	if properties["total_minor"] != float64(created.TotalMinor) || properties["restaurant_id"] != created.RestaurantID.String() {
+		t.Fatalf("unexpected analytics properties: %+v", properties)
+	}
+	for _, forbidden := range []string{"user_id", "delivery_address", "email"} {
+		if _, exists := properties[forbidden]; exists {
+			t.Fatalf("analytics event contains forbidden property %q", forbidden)
+		}
+	}
 	var repeated domain.Order
 	doJSON(t, client, http.MethodPost, baseURL+"/api/v1/orders", draft, headers, http.StatusOK, &repeated)
 	if created.ID != repeated.ID {
