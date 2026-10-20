@@ -107,8 +107,10 @@ export async function updatePartnerOrderStatus(apiKey: string, orderId: string, 
   }))
 }
 
-export async function streamPartnerOrders(apiKey: string, onOrders: (orders: Order[]) => void, signal: AbortSignal): Promise<void> {
-  const response = await fetch('/partner/v1/orders/events', { headers: { 'X-API-Key': apiKey }, signal })
+export async function streamPartnerOrders(apiKey: string, onOrders: (orders: Order[]) => void, signal: AbortSignal, lastEventId = '', onEventId?: (id: string) => void): Promise<void> {
+  const headers: Record<string, string> = { 'X-API-Key': apiKey }
+  if (lastEventId) headers['Last-Event-ID'] = lastEventId
+  const response = await fetch('/partner/v1/orders/events', { headers, signal })
   if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`)
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -121,13 +123,17 @@ export async function streamPartnerOrders(apiKey: string, onOrders: (orders: Ord
     buffer = events.pop() ?? ''
     for (const event of events) {
       if (!event.split('\n').some((line) => line === 'event: orders')) continue
+      const id = event.split('\n').find((line) => line.startsWith('id: '))
+      if (id) onEventId?.(id.slice(4))
       const data = event.split('\n').find((line) => line.startsWith('data: '))
       if (data) onOrders((JSON.parse(data.slice(6)) as { items: Order[] }).items)
     }
   }
 }
-export async function streamOrder(orderId: string, onOrder: (order: Order) => void, signal: AbortSignal): Promise<void> {
-  const response = await authorizedFetch(`/api/v1/orders/${orderId}/events`, { signal })
+export async function streamOrder(orderId: string, onOrder: (order: Order) => void, signal: AbortSignal, lastEventId = '', onEventId?: (id: string) => void): Promise<void> {
+  const headers: Record<string, string> = {}
+  if (lastEventId) headers['Last-Event-ID'] = lastEventId
+  const response = await authorizedFetch(`/api/v1/orders/${orderId}/events`, { signal, headers })
   if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`)
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -139,6 +145,9 @@ export async function streamOrder(orderId: string, onOrder: (order: Order) => vo
     const events = buffer.split('\n\n')
     buffer = events.pop() ?? ''
     for (const event of events) {
+      if (!event.split('\n').some((line) => line === 'event: order')) continue
+      const id = event.split('\n').find((line) => line.startsWith('id: '))
+      if (id) onEventId?.(id.slice(4))
       const data = event.split('\n').find((line) => line.startsWith('data: '))
       if (data) onOrder(JSON.parse(data.slice(6)) as Order)
     }

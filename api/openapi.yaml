@@ -357,6 +357,14 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: Last processed numeric status event ID. Events with greater IDs are replayed from PostgreSQL before live streaming starts.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
       responses:
         '200':
           description: SSE stream with `order` events containing an Order JSON object
@@ -472,6 +480,15 @@ paths:
       security:
         - partnerApiKey: []
       operationId: streamPartnerOrders
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: Last processed numeric order event ID. The server always returns an authoritative PostgreSQL snapshot with a current high-watermark ID.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
       responses:
         '200':
           description: SSE stream with `orders` events containing the current restaurant order list

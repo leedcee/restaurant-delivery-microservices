@@ -240,6 +240,7 @@ export default function App() {
     setPartnerConnection('connecting')
     setPartnerLoading(true)
     const connect = async () => {
+      let lastEventId = ''
       while (!controller.signal.aborted) {
         let failed = false
         try {
@@ -249,7 +250,7 @@ export default function App() {
             setPartnerLoading(false)
             setPartnerConnection('live')
             retryDelay = 1000
-          }, controller.signal)
+          }, controller.signal, lastEventId, (id) => { lastEventId = id })
         } catch {
           if (controller.signal.aborted) return
           failed = true
@@ -299,14 +300,31 @@ export default function App() {
     if (screen !== 'tracking' || !routeId || !session) return
     const controller = new AbortController(); setErrors((value) => ({ ...value, stream: '' }))
     const connect = async () => {
-      try {
-        setOrder(await fetchOrder(routeId))
-        await streamOrder(routeId, setOrder, controller.signal)
-      } catch {
-        if (!controller.signal.aborted) setErrors((value) => ({ ...value, stream: 'Поток статусов прерван.' }))
+      const initial = await fetchOrder(routeId)
+      setOrder(initial)
+      if (['delivered', 'cancelled', 'rejected'].includes(initial.status)) return
+      let lastEventId = ''
+      let retryDelay = 1000
+      while (!controller.signal.aborted) {
+        let terminal = false
+        try {
+          await streamOrder(routeId, (next) => {
+            setOrder(next)
+            setErrors((value) => ({ ...value, stream: '' }))
+            terminal = ['delivered', 'cancelled', 'rejected'].includes(next.status)
+          }, controller.signal, lastEventId, (id) => { lastEventId = id })
+          if (terminal) return
+          retryDelay = 1000
+        } catch {
+          if (controller.signal.aborted) return
+          setErrors((value) => ({ ...value, stream: 'Поток статусов прерван, переподключаемся…' }))
+        }
+        if (controller.signal.aborted) return
+        await new Promise((resolve) => window.setTimeout(resolve, retryDelay))
+        retryDelay = Math.min(retryDelay * 2, 15000)
       }
     }
-    void connect()
+    void connect().catch(() => { if (!controller.signal.aborted) setErrors((value) => ({ ...value, stream: 'Не удалось получить состояние заказа.' })) })
     return () => controller.abort()
   }, [screen, routeId, streamRetry, session])
 

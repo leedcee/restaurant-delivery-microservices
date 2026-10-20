@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -411,6 +412,16 @@ func (s *server) streamOrder(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, fmt.Errorf("%w: invalid order id", domain.ErrValidation))
 		return
 	}
+	lastEventID, hasLastEventID, err := parseLastEventID(r.Header.Get("Last-Event-ID"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	latestEventID, err := s.orders.LatestStatusEventID(r.Context(), orderID, uid)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	order, err := s.orders.Get(r.Context(), orderID, uid)
 	if err != nil {
 		s.fail(w, r, err)
@@ -421,45 +432,96 @@ func (s *server) streamOrder(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errors.New("streaming is unsupported"))
 		return
 	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	sendOrderEvent(w, flusher, order)
+	setSSEHeaders(w)
+	_, _ = io.WriteString(w, "retry: 3000\n\n")
+	flusher.Flush()
+	if hasLastEventID {
+		events, listErr := s.orders.StatusEvents(r.Context(), orderID, uid, lastEventID)
+		if listErr != nil {
+			return
+		}
+		for _, event := range events {
+			if !sendOrderEvent(w, flusher, event.ID, event.Order) {
+				return
+			}
+			lastEventID = event.ID
+		}
+		if lastEventID > latestEventID {
+			lastEventID = latestEventID
+			if !sendOrderEvent(w, flusher, latestEventID, order) {
+				return
+			}
+		}
+	} else {
+		lastEventID = latestEventID
+		if !sendOrderEvent(w, flusher, latestEventID, order) {
+			return
+		}
+	}
 	if terminalStatus(order.Status) {
 		return
 	}
 
 	ticker := time.NewTicker(750 * time.Millisecond)
 	defer ticker.Stop()
-	lastStatus := order.Status
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
-			current, getErr := s.orders.Get(r.Context(), orderID, uid)
-			if getErr != nil {
+			events, listErr := s.orders.StatusEvents(r.Context(), orderID, uid, lastEventID)
+			if listErr != nil {
 				return
 			}
-			if current.Status == lastStatus {
-				continue
+			for _, event := range events {
+				if !sendOrderEvent(w, flusher, event.ID, event.Order) {
+					return
+				}
+				lastEventID = event.ID
+				if terminalStatus(event.Order.Status) {
+					return
+				}
 			}
-			lastStatus = current.Status
-			sendOrderEvent(w, flusher, current)
-			if terminalStatus(current.Status) {
+		case <-heartbeat.C:
+			if _, err := io.WriteString(w, ": keep-alive\n\n"); err != nil {
 				return
 			}
+			flusher.Flush()
 		}
 	}
 }
 
-func sendOrderEvent(w http.ResponseWriter, flusher http.Flusher, order domain.Order) {
+func sendOrderEvent(w io.Writer, flusher http.Flusher, eventID int64, order domain.Order) bool {
 	data, err := json.Marshal(order)
 	if err != nil {
-		return
+		return false
 	}
-	_, _ = fmt.Fprintf(w, "event: order\ndata: %s\n\n", data)
+	if _, err := fmt.Fprintf(w, "id: %d\nevent: order\ndata: %s\n\n", eventID, data); err != nil {
+		return false
+	}
 	flusher.Flush()
+	return true
+}
+
+func parseLastEventID(value string) (int64, bool, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false, nil
+	}
+	id, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || id < 0 {
+		return 0, false, fmt.Errorf("%w: Last-Event-ID must be a non-negative integer", domain.ErrValidation)
+	}
+	return id, true, nil
+}
+
+func setSSEHeaders(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 }
 
 func terminalStatus(status domain.OrderStatus) bool {
@@ -512,10 +574,12 @@ func (s *server) streamPartnerOrders(w http.ResponseWriter, r *http.Request) {
 	updates, unsubscribe := s.partnerOrderEvents.subscribe(restaurantID)
 	defer unsubscribe()
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
+	if _, _, err = parseLastEventID(r.Header.Get("Last-Event-ID")); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	setSSEHeaders(w)
+	_, _ = io.WriteString(w, "retry: 3000\n\n")
 	if err := s.sendPartnerOrdersEvent(r, w, flusher, restaurantID); err != nil {
 		s.logger.Error("send initial partner order event", "error", err, "restaurantId", restaurantID)
 		return
@@ -542,6 +606,10 @@ func (s *server) streamPartnerOrders(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) sendPartnerOrdersEvent(r *http.Request, w io.Writer, flusher http.Flusher, restaurantID uuid.UUID) error {
+	eventID, err := s.orders.LatestRestaurantStatusEventID(r.Context(), restaurantID)
+	if err != nil {
+		return err
+	}
 	items, err := s.orders.ListForRestaurant(r.Context(), restaurantID)
 	if err != nil {
 		return err
@@ -550,7 +618,7 @@ func (s *server) sendPartnerOrdersEvent(r *http.Request, w io.Writer, flusher ht
 	if err != nil {
 		return fmt.Errorf("marshal partner orders: %w", err)
 	}
-	if _, err := fmt.Fprintf(w, "event: orders\ndata: %s\n\n", data); err != nil {
+	if _, err := fmt.Fprintf(w, "id: %d\nevent: orders\ndata: %s\n\n", eventID, data); err != nil {
 		return fmt.Errorf("write partner orders: %w", err)
 	}
 	flusher.Flush()
