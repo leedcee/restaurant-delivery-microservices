@@ -12,6 +12,7 @@ test-e2e:
 		E2E_BASE_URL=http://127.0.0.1:18080 \
 		E2E_DATABASE_URL='postgres://restaurant_test:restaurant_test@127.0.0.1:55432/restaurant_delivery_test?sslmode=disable' \
 		go test -count=1 -tags=e2e ./tests/e2e; \
+		bash scripts/e2e-resilience.sh; \
 		docker compose -p restaurant-delivery-e2e -f docker-compose.e2e.yml run --rm migrations \
 			-path=/migrations -database='postgres://restaurant_test:restaurant_test@postgres:5432/restaurant_delivery_test?sslmode=disable' down 1; \
 		docker compose -p restaurant-delivery-e2e -f docker-compose.e2e.yml run --rm migrations \
