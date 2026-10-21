@@ -54,5 +54,18 @@ for attempt in {1..30}; do
   fi
   sleep 1
 done
+
+postgres_container_id="$("${compose[@]}" ps -q postgres)"
+for attempt in {1..30}; do
+  health_status="$(docker inspect --format '{{.State.Health.Status}}' "$postgres_container_id")"
+  if [[ "$health_status" == "healthy" ]]; then
+    break
+  fi
+  if [[ "$attempt" == "30" ]]; then
+    echo "PostgreSQL container health remained $health_status" >&2
+    exit 1
+  fi
+  sleep 1
+done
 wait_http "$E2E_BASE_URL/health/ready"
 E2E_RESILIENCE_PHASE=verify-database go test -count=1 -tags=e2e -run '^TestVerifyDatabaseRecovery$' ./tests/e2e
