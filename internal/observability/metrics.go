@@ -15,25 +15,45 @@ import (
 )
 
 type Metrics struct {
-	registry *prometheus.Registry
-	requests *prometheus.CounterVec
-	duration *prometheus.HistogramVec
-	active   prometheus.Gauge
+	registry           *prometheus.Registry
+	requests           *prometheus.CounterVec
+	duration           *prometheus.HistogramVec
+	active             prometheus.Gauge
+	cleanupDeleted     *prometheus.CounterVec
+	cleanupRuns        *prometheus.CounterVec
+	cleanupLastSuccess prometheus.Gauge
 }
 
 func New(db *pgxpool.Pool) *Metrics {
 	registry := prometheus.NewRegistry()
 	m := &Metrics{
-		registry: registry,
-		requests: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "http_server_requests_total", Help: "Completed HTTP requests."}, []string{"method", "route", "status"}),
-		duration: prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "http_server_request_duration_seconds", Help: "HTTP request duration.", Buckets: prometheus.DefBuckets}, []string{"method", "route"}),
-		active:   prometheus.NewGauge(prometheus.GaugeOpts{Name: "http_server_active_requests", Help: "Currently active HTTP requests."}),
+		registry:           registry,
+		requests:           prometheus.NewCounterVec(prometheus.CounterOpts{Name: "http_server_requests_total", Help: "Completed HTTP requests."}, []string{"method", "route", "status"}),
+		duration:           prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "http_server_request_duration_seconds", Help: "HTTP request duration.", Buckets: prometheus.DefBuckets}, []string{"method", "route"}),
+		active:             prometheus.NewGauge(prometheus.GaugeOpts{Name: "http_server_active_requests", Help: "Currently active HTTP requests."}),
+		cleanupDeleted:     prometheus.NewCounterVec(prometheus.CounterOpts{Name: "event_cleanup_deleted_total", Help: "Expired event records deleted by queue and disposition."}, []string{"queue", "disposition"}),
+		cleanupRuns:        prometheus.NewCounterVec(prometheus.CounterOpts{Name: "event_cleanup_runs_total", Help: "Event cleanup runs by result."}, []string{"result"}),
+		cleanupLastSuccess: prometheus.NewGauge(prometheus.GaugeOpts{Name: "event_cleanup_last_success_timestamp_seconds", Help: "Unix timestamp of the latest successful event cleanup."}),
 	}
-	registry.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}), m.requests, m.duration, m.active)
+	registry.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}), m.requests, m.duration, m.active,
+		m.cleanupDeleted, m.cleanupRuns, m.cleanupLastSuccess)
 	m.registerDatabase(db)
 	m.registerOutbox(db)
 	m.registerAnalytics(db)
 	return m
+}
+
+func (m *Metrics) RecordEventCleanup(queue, disposition string, deleted int) {
+	m.cleanupDeleted.WithLabelValues(queue, disposition).Add(float64(deleted))
+}
+
+func (m *Metrics) RecordEventCleanupRun(success bool) {
+	result := "error"
+	if success {
+		result = "success"
+		m.cleanupLastSuccess.SetToCurrentTime()
+	}
+	m.cleanupRuns.WithLabelValues(result).Inc()
 }
 
 func (m *Metrics) registerAnalytics(db *pgxpool.Pool) {

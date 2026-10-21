@@ -62,6 +62,12 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: X-Event-Occurred-At
+          in: header
+          required: true
+          schema:
+            type: string
+            format: date-time
         - name: Idempotency-Key
           in: header
           required: true

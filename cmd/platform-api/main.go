@@ -14,6 +14,7 @@ import (
 	"restaurant-delivery-system/internal/config"
 	"restaurant-delivery-system/internal/httpapi"
 	"restaurant-delivery-system/internal/integration"
+	"restaurant-delivery-system/internal/maintenance"
 	"restaurant-delivery-system/internal/observability"
 	"restaurant-delivery-system/internal/store"
 )
@@ -44,6 +45,11 @@ func main() {
 		logger.Error("invalid configuration", "error", err)
 		os.Exit(1)
 	}
+	cleanupConfig, err := maintenance.ConfigFromEnv()
+	if err != nil {
+		logger.Error("invalid maintenance configuration", "error", err)
+		os.Exit(1)
+	}
 
 	db, err := store.Open(context.Background(), cfg.DatabaseURL)
 	if err != nil {
@@ -66,6 +72,7 @@ func main() {
 	}
 	go integration.NewWorker(db, logger).Run(ctx)
 	go analytics.NewWorker(db, logger, os.Getenv("CLICKHOUSE_URL"), envOrDefault("CLICKHOUSE_USER", "analytics"), os.Getenv("CLICKHOUSE_PASSWORD")).Run(ctx)
+	go maintenance.NewWorker(db, logger, cleanupConfig, metrics).Run(ctx)
 
 	go func() {
 		logger.Info("platform API started", "address", cfg.HTTPAddr)

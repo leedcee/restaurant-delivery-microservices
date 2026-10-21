@@ -10,11 +10,11 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
-	"strconv"
 	"sync"
 	"time"
 
 	"restaurant-delivery-system/internal/domain"
+	"restaurant-delivery-system/internal/eventcontract"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -72,6 +72,7 @@ type delivery struct {
 	EventType     string
 	EventVersion  int
 	CorrelationID uuid.UUID
+	OccurredAt    time.Time
 	Attempts      int
 	Endpoint      string
 	Order         domain.Order
@@ -100,11 +101,8 @@ func (w *Worker) processOne(ctx context.Context) (returnErr error) {
 		return w.fail(ctx, item, fmt.Errorf("create partner request: %w", err))
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Idempotency-Key", item.EventID.String())
-	req.Header.Set("X-Event-ID", item.EventID.String())
-	req.Header.Set("X-Event-Type", item.EventType)
-	req.Header.Set("X-Event-Version", strconv.Itoa(item.EventVersion))
-	req.Header.Set("X-Correlation-ID", item.CorrelationID.String())
+	eventcontract.Metadata{ID: item.EventID, Type: item.EventType, Version: item.EventVersion,
+		CorrelationID: item.CorrelationID, OccurredAt: item.OccurredAt}.Apply(req.Header)
 	response, err := w.client.Do(req)
 	if err != nil {
 		return w.fail(ctx, item, fmt.Errorf("send partner request: %w", err))
@@ -131,7 +129,7 @@ func (w *Worker) claim(ctx context.Context) (delivery, error) {
 	defer func() { _ = tx.Rollback(ctx) }()
 	var item delivery
 	err = tx.QueryRow(ctx, `
-		SELECT e.id, e.event_type, e.event_version, e.correlation_id, e.attempts,
+		SELECT e.id, e.event_type, e.event_version, e.correlation_id, e.occurred_at, e.attempts,
 		       e.aggregate_id, i.order_endpoint
 		FROM outbox_events e
 		JOIN orders o ON o.id = e.aggregate_id
@@ -139,7 +137,7 @@ func (w *Worker) claim(ctx context.Context) (delivery, error) {
 		WHERE e.processed_at IS NULL AND e.dead_lettered_at IS NULL
 		  AND e.available_at <= now() AND e.event_type = 'order.created'
 		ORDER BY e.created_at FOR UPDATE OF e SKIP LOCKED LIMIT 1`).
-		Scan(&item.EventID, &item.EventType, &item.EventVersion, &item.CorrelationID, &item.Attempts,
+		Scan(&item.EventID, &item.EventType, &item.EventVersion, &item.CorrelationID, &item.OccurredAt, &item.Attempts,
 			&item.Order.ID, &item.Endpoint)
 	if err != nil {
 		return delivery{}, err

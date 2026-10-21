@@ -39,3 +39,10 @@
 2. Проверить health ClickHouse через `http://localhost:8123/ping` и логи `clickhouse`/`platform-api`.
 3. После восстановления убедиться, что backlog уменьшается; worker повторяет временные ошибки автоматически.
 4. Для dead-letter события сначала устранить ошибку схемы или доступа, затем вернуть запись в очередь административным SQL с обнулением `dead_lettered_at`, `attempts` и `available_at = now()`.
+
+## EventCleanupStalled
+
+1. Проверить `event_cleanup_runs_total{result="error"}` и время с `event_cleanup_last_success_timestamp_seconds` на dashboard `Service Overview`.
+2. Найти запись `event cleanup failed` в логах `platform-api`; поля `queue` и `disposition` укажут проблемную таблицу и состояние.
+3. Проверить доступность PostgreSQL, блокировки и свободное место. Cleanup использует короткие пакетные удаления с `SKIP LOCKED`, поэтому не должен блокировать активный worker.
+4. После устранения причины дождаться следующего запуска или перезапустить API; cleanup безопасно выполняется сразу при старте и не удаляет pending-события.

@@ -11,14 +11,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"restaurant-delivery-system/internal/config"
 	"restaurant-delivery-system/internal/domain"
+	"restaurant-delivery-system/internal/eventcontract"
 	"restaurant-delivery-system/internal/observability"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -82,13 +81,12 @@ func (a *restaurant) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *restaurant) receiveOrder(w http.ResponseWriter, r *http.Request) {
-	eventID := strings.TrimSpace(r.Header.Get("X-Event-ID"))
-	eventType := strings.TrimSpace(r.Header.Get("X-Event-Type"))
-	eventVersion, versionErr := strconv.Atoi(r.Header.Get("X-Event-Version"))
-	if eventID == "" || r.Header.Get("Idempotency-Key") != eventID || eventType != "order.created" || versionErr != nil || eventVersion != 1 {
+	metadata, err := eventcontract.Parse(r.Header)
+	if err != nil || !metadata.IsOrderCreatedV1() {
 		http.Error(w, "invalid event metadata", http.StatusBadRequest)
 		return
 	}
+	eventID := metadata.ID.String()
 	var order domain.Order
 	if err := json.NewDecoder(r.Body).Decode(&order); err != nil {
 		http.Error(w, "invalid order", http.StatusBadRequest)

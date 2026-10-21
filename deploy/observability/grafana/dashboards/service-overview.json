@@ -79,6 +79,18 @@
         {"expr": "postgres_pool_empty_acquire_count", "legendFormat": "empty acquire count", "refId": "D"}
       ],
       "fieldConfig": {"defaults": {}, "overrides": []}
+    },
+    {
+      "type": "timeseries",
+      "title": "Event retention cleanup",
+      "id": 9,
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 26},
+      "targets": [
+        {"expr": "sum by (queue, disposition) (increase(event_cleanup_deleted_total[1h]))", "legendFormat": "deleted {{queue}} / {{disposition}}", "refId": "A"},
+        {"expr": "time() - event_cleanup_last_success_timestamp_seconds", "legendFormat": "seconds since success", "refId": "B"},
+        {"expr": "increase(event_cleanup_runs_total{result=\"error\"}[1h])", "legendFormat": "failed runs", "refId": "C"}
+      ],
+      "fieldConfig": {"defaults": {}, "overrides": []}
     }
   ],
   "refresh": "15s",

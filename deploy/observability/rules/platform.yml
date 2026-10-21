@@ -50,3 +50,12 @@ groups:
           summary: Analytics events have not reached ClickHouse for more than five minutes
           runbook_url: docs/runbooks/observability.md#analyticsingestionstalled
 
+      - alert: EventCleanupStalled
+        expr: time() - event_cleanup_last_success_timestamp_seconds > 10800
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Event retention cleanup has not completed for more than three hours
+          runbook_url: docs/runbooks/observability.md#eventcleanupstalled
+
