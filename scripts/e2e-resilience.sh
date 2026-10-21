@@ -33,16 +33,17 @@ echo "Restoring restaurant and verifying eventual delivery without duplication"
 wait_http "http://127.0.0.1:18081/health/live"
 E2E_RESILIENCE_PHASE=verify-restart go test -count=1 -tags=e2e -run '^TestVerifyOutboxAfterAPIRestart$' ./tests/e2e
 
-echo "Stopping PostgreSQL and verifying readiness reports the dependency failure"
-"${compose[@]}" stop postgres
+echo "Pausing PostgreSQL and verifying readiness reports the dependency failure"
+"${compose[@]}" pause postgres
 readiness_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 12 "$E2E_BASE_URL/health/ready" || true)"
 if [[ "$readiness_status" != "503" ]]; then
-  echo "readiness returned $readiness_status while PostgreSQL was stopped, want 503" >&2
+  "${compose[@]}" unpause postgres
+  echo "readiness returned $readiness_status while PostgreSQL was paused, want 503" >&2
   exit 1
 fi
 
 echo "Restoring PostgreSQL and verifying API connection-pool recovery"
-"${compose[@]}" start postgres
+"${compose[@]}" unpause postgres
 for attempt in {1..30}; do
   if "${compose[@]}" exec -T postgres pg_isready -U restaurant_test -d restaurant_delivery_test >/dev/null 2>&1; then
     break
