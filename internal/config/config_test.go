@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -18,6 +20,72 @@ func TestPlatformFromEnvAllowsLocalDevelopmentDefaults(t *testing.T) {
 	}
 	if cfg.Environment != "local" || cfg.JWTSecret != developmentJWTSecret || cfg.CookieSecure {
 		t.Fatalf("unexpected local configuration: %+v", cfg)
+	}
+}
+
+func TestPlatformFromEnvReadsSecretsFromFiles(t *testing.T) {
+	directory := t.TempDir()
+	databaseFile := filepath.Join(directory, "database-url")
+	jwtFile := filepath.Join(directory, "jwt-secret")
+	clickHouseFile := filepath.Join(directory, "clickhouse-password")
+	for path, value := range map[string]string{
+		databaseFile:   "postgres://from-secret-file\n",
+		jwtFile:        strings.Repeat("j", 40) + "\n",
+		clickHouseFile: "clickhouse-from-file\n",
+	} {
+		if err := os.WriteFile(path, []byte(value), 0o600); err != nil {
+			t.Fatalf("write test secret: %v", err)
+		}
+	}
+	t.Setenv("APP_ENVIRONMENT", "staging")
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("DATABASE_URL_FILE", databaseFile)
+	t.Setenv("JWT_SECRET", "")
+	t.Setenv("JWT_SECRET_FILE", jwtFile)
+	t.Setenv("CLICKHOUSE_PASSWORD", "")
+	t.Setenv("CLICKHOUSE_PASSWORD_FILE", clickHouseFile)
+	t.Setenv("SESSION_COOKIE_SECURE", "true")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://staging.example.com")
+
+	cfg, err := PlatformFromEnv()
+	if err != nil {
+		t.Fatalf("PlatformFromEnv() error = %v", err)
+	}
+	if cfg.DatabaseURL != "postgres://from-secret-file" || cfg.JWTSecret != strings.Repeat("j", 40) || cfg.ClickHousePassword != "clickhouse-from-file" {
+		t.Fatalf("unexpected file-backed secrets: %+v", cfg)
+	}
+}
+
+func TestPlatformFromEnvRejectsAmbiguousSecretSource(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://environment")
+	t.Setenv("DATABASE_URL_FILE", "database-url.txt")
+	_, err := PlatformFromEnv()
+	if err == nil || !strings.Contains(err.Error(), "DATABASE_URL") {
+		t.Fatalf("PlatformFromEnv() error = %v, want DATABASE_URL ambiguity", err)
+	}
+}
+
+func TestDemoRestaurantFromEnvReadsSecretsFromFiles(t *testing.T) {
+	directory := t.TempDir()
+	apiKeyFile := filepath.Join(directory, "api-key")
+	partnerKeysFile := filepath.Join(directory, "partner-keys")
+	if err := os.WriteFile(apiKeyFile, []byte("demo-from-file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(partnerKeysFile, []byte("restaurant-id=partner-from-file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DEMO_API_KEY", "")
+	t.Setenv("DEMO_API_KEY_FILE", apiKeyFile)
+	t.Setenv("DEMO_PARTNER_API_KEYS", "")
+	t.Setenv("DEMO_PARTNER_API_KEYS_FILE", partnerKeysFile)
+
+	cfg, err := DemoRestaurantFromEnv()
+	if err != nil {
+		t.Fatalf("DemoRestaurantFromEnv() error = %v", err)
+	}
+	if cfg.APIKey != "demo-from-file" || cfg.PartnerAPIKeys["restaurant-id"] != "partner-from-file" {
+		t.Fatalf("unexpected demo secret configuration: %+v", cfg)
 	}
 }
 

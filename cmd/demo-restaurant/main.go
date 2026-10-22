@@ -44,7 +44,11 @@ func main() {
 		defer cancel()
 		_ = shutdownTracing(shutdownCtx)
 	}()
-	cfg := config.DemoRestaurantFromEnv()
+	cfg, err := config.DemoRestaurantFromEnv()
+	if err != nil {
+		logger.Error("invalid configuration", "error", err)
+		os.Exit(1)
+	}
 	app := &restaurant{
 		config: cfg,
 		logger: logger,

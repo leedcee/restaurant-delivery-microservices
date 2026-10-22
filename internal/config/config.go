@@ -13,12 +13,13 @@ const developmentJWTSecret = "dev-only-change-me"
 
 // Platform contains configuration for the main API service.
 type Platform struct {
-	Environment    string
-	HTTPAddr       string
-	DatabaseURL    string
-	JWTSecret      string
-	CookieSecure   bool
-	AllowedOrigins []string
+	Environment        string
+	HTTPAddr           string
+	DatabaseURL        string
+	JWTSecret          string
+	ClickHousePassword string
+	CookieSecure       bool
+	AllowedOrigins     []string
 }
 
 // DemoRestaurant contains configuration for the example partner service.
@@ -31,12 +32,25 @@ type DemoRestaurant struct {
 
 // PlatformFromEnv returns validated main API configuration.
 func PlatformFromEnv() (Platform, error) {
+	databaseURL, err := valueOrFile("DATABASE_URL", "")
+	if err != nil {
+		return Platform{}, err
+	}
+	jwtSecret, err := valueOrFile("JWT_SECRET", developmentJWTSecret)
+	if err != nil {
+		return Platform{}, err
+	}
+	clickHousePassword, err := valueOrFile("CLICKHOUSE_PASSWORD", "")
+	if err != nil {
+		return Platform{}, err
+	}
 	cfg := Platform{
-		Environment:    strings.ToLower(valueOrDefault("APP_ENVIRONMENT", "local")),
-		HTTPAddr:       valueOrDefault("PLATFORM_HTTP_ADDR", ":8080"),
-		DatabaseURL:    os.Getenv("DATABASE_URL"),
-		JWTSecret:      valueOrDefault("JWT_SECRET", developmentJWTSecret),
-		AllowedOrigins: splitList(valueOrDefault("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")),
+		Environment:        strings.ToLower(valueOrDefault("APP_ENVIRONMENT", "local")),
+		HTTPAddr:           valueOrDefault("PLATFORM_HTTP_ADDR", ":8080"),
+		DatabaseURL:        databaseURL,
+		JWTSecret:          jwtSecret,
+		ClickHousePassword: clickHousePassword,
+		AllowedOrigins:     splitList(valueOrDefault("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")),
 	}
 	secure, err := strconv.ParseBool(valueOrDefault("SESSION_COOKIE_SECURE", "false"))
 	if err != nil {
@@ -89,14 +103,22 @@ func splitList(value string) []string {
 	return result
 }
 
-// DemoRestaurantFromEnv returns demo restaurant configuration.
-func DemoRestaurantFromEnv() DemoRestaurant {
+// DemoRestaurantFromEnv returns validated demo restaurant configuration.
+func DemoRestaurantFromEnv() (DemoRestaurant, error) {
+	apiKey, err := valueOrFile("DEMO_API_KEY", "demo-secret")
+	if err != nil {
+		return DemoRestaurant{}, err
+	}
+	partnerKeys, err := valueOrFile("DEMO_PARTNER_API_KEYS", "")
+	if err != nil {
+		return DemoRestaurant{}, err
+	}
 	return DemoRestaurant{
 		HTTPAddr:        valueOrDefault("DEMO_HTTP_ADDR", ":8081"),
 		PlatformBaseURL: valueOrDefault("PLATFORM_BASE_URL", "http://localhost:8080"),
-		APIKey:          valueOrDefault("DEMO_API_KEY", "demo-secret"),
-		PartnerAPIKeys:  parseKeyMap(os.Getenv("DEMO_PARTNER_API_KEYS")),
-	}
+		APIKey:          apiKey,
+		PartnerAPIKeys:  parseKeyMap(partnerKeys),
+	}, nil
 }
 
 func parseKeyMap(value string) map[string]string {
@@ -116,4 +138,27 @@ func valueOrDefault(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func valueOrFile(key, fallback string) (string, error) {
+	value := os.Getenv(key)
+	file := os.Getenv(key + "_FILE")
+	if value != "" && file != "" {
+		return "", fmt.Errorf("%s and %s_FILE cannot be set together", key, key)
+	}
+	if file == "" {
+		if value != "" {
+			return value, nil
+		}
+		return fallback, nil
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return "", fmt.Errorf("read %s_FILE: %w", key, err)
+	}
+	value = strings.TrimRight(string(data), "\r\n")
+	if value == "" {
+		return "", fmt.Errorf("%s_FILE must not be empty", key)
+	}
+	return value, nil
 }

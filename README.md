@@ -114,6 +114,8 @@ Prometheus хранит локальные метрики семь дней и �
 
 Порты Prometheus и Grafana в локальном Compose привязаны только к loopback-интерфейсу. При внешнем развёртывании `/metrics` также должен оставаться во внутренней сети и не публиковаться через пользовательский reverse proxy.
 
+Для staging подготовлен отдельный [Compose manifest](deploy/staging/compose.yml): наружу опубликован только Caddy TLS ingress, PostgreSQL/ClickHouse/API/web изолированы внутренними сетями, приложения работают с read-only filesystem и без Linux capabilities. DB, JWT, ClickHouse и partner secrets передаются файлами Docker secrets через `_FILE`, миграции и bootstrap ключа выполняются отдельными release jobs. Последовательность релиза и rollback описана в [staging runbook](docs/runbooks/staging-release.md).
+
 API и demo restaurant экспортируют OTLP traces через Collector в Tempo. W3C trace context передаётся между сервисами автоматически, а JSON-логи содержат `service`, `environment`, `version` и, при наличии активного span, `trace_id`/`span_id`. В Grafana Explore trace можно открыть из поля `trace_id` в Loki и перейти из Tempo к логам того же запроса. Логи и метрики хранятся семь дней, traces — сутки.
 
 События `order_created` и `order_status_changed` записываются в отдельный PostgreSQL analytics outbox в той же транзакции, затем асинхронно доставляются в ClickHouse. В аналитический контур не попадают пользователь, адрес, email, название блюда или текст причины; заказ представлен необратимым SHA-256 ключом. Недоступность ClickHouse не блокирует оформление заказа, backlog и ingestion lag видны в Prometheus.
@@ -195,6 +197,7 @@ Vite проксирует `/api` на `http://localhost:8080`. При недос
 - [ADR о PostgreSQL outbox](docs/adr/0001-postgresql-outbox.md);
 - [runbook ротации и компрометации партнёрского ключа](docs/runbooks/partner-credential-compromise.md);
 - [runbook нагрузочного тестирования](docs/runbooks/load-testing.md);
+- [runbook staging release и rollback](docs/runbooks/staging-release.md);
 - [план развития проекта](docs/roadmap.md).
 
 API версии `0.11.0` включает регистрацию, вход, ротацию refresh token в `HttpOnly SameSite` cookie, серверный logout и отзыв token family при обнаружении повторного использования, профиль, CRUD сохранённых адресов, серверные метаданные каталога, двустороннее управление меню ресторана и realtime-очередь партнёра через SSE. Партнёрские credentials имеют scoped роли, expiry, overlap-ротацию, emergency revoke и append-only audit API. Изменения состояния заказа защищены его версией, клиент может отменить заказ до начала приготовления, а отклонение и отмена возвращают зарезервированные остатки. Web-клиент хранит только короткоживущий Bearer access token, защищает личные экраны и автоматически подставляет основной адрес при оформлении. Все пользовательские endpoints требуют действительный access token.

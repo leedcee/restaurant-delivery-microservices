@@ -65,7 +65,7 @@
 - [ ] заменить ключи доступа на полноценные аккаунты сотрудников; ролевые credentials `owner`, `manager`, `kitchen`, `operator` и permission matrix уже внедрены;
 - [x] хранить партнёрские ключи с идентификатором, сроком действия, overlap-ротацией, немедленным отзывом и аудитом использования;
 - [x] добавить append-only журнал чувствительных действий партнёра с actor/action/resource/reason/request/trace/timestamp и просмотром для owner/operator;
-- [ ] подключить secret manager в staging/production; fail-closed validation уже исключает dev JWT secret, insecure cookie и HTTP origins во внешнем окружении;
+- [ ] подключить внешний secret manager в production; staging manifest уже использует Docker secrets и `_FILE`, fail-closed validation исключает dev JWT secret, insecure cookie и HTTP origins;
 - [x] добавить dependency, image и secret scanning в CI;
 - [x] составить threat model для auth, заказов, webhook и партнёрского API.
 
@@ -128,17 +128,17 @@
 
 ### P0.5. Эксплуатационная готовность
 
-- [ ] подготовить отдельные конфигурации `local`, `test`, `staging`, `production`;
+- [ ] завершить отдельную production-конфигурацию; local/test и изолированный staging manifest готовы;
 - [ ] собирать immutable OCI images с commit SHA, SBOM и подписью;
-- [ ] развернуть staging с TLS, DNS, reverse proxy/API gateway и закрытой БД;
-- [ ] выполнять миграции отдельным release job с forward-compatible схемами;
+- [ ] фактически развернуть staging; manifest с автоматическим TLS ingress, Docker secrets и закрытыми PostgreSQL/ClickHouse/API уже готов и проходит `docker compose config`;
+- [x] выполнять миграции отдельным release job с forward-compatible схемами; populated rollback/reapply проверяется CI;
 - [ ] добавить rolling deployment, корректные readiness/liveness и graceful shutdown worker/SSE;
 - [ ] подключить расписание и внешнее object storage для ежедневных резервных копий PostgreSQL; consistent backup, age-шифрование, checksum и retention реализованы;
 - [ ] провести restore drill в staging и зафиксировать фактические RPO/RTO; автоматический encrypted backup/restore integrity drill уже блокирует CI, целевые RPO 24 часа и RTO 60 минут описаны в runbook;
 - [ ] добавить synthetic check полного пути quote → create → status в staging;
 - [ ] провести и зафиксировать k6 baseline в staging; профили smoke/average/peak/stress/degraded и CI smoke gate уже реализованы;
 - [ ] определить production-retention логов, traces и метрик; retention операционных и аналитических event-журналов уже автоматизирован;
-- [ ] подготовить инструкции по релизу и откату; runbooks аварии БД, роста outbox и компрометации ключа готовы.
+- [x] подготовить инструкции по staging-релизу и безопасному application rollback, аварии БД, росту outbox и компрометации ключа.
 
 Готово, когда staging поднимается автоматически из пустого окружения, релиз откатывается, а БД восстанавливается в пределах заявленных RPO/RTO.
 

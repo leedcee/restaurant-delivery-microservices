@@ -71,7 +71,7 @@ func main() {
 		MaxHeaderBytes:    1 << 20,
 	}
 	go integration.NewWorker(db, logger).Run(ctx)
-	go analytics.NewWorker(db, logger, os.Getenv("CLICKHOUSE_URL"), envOrDefault("CLICKHOUSE_USER", "analytics"), os.Getenv("CLICKHOUSE_PASSWORD")).Run(ctx)
+	go analytics.NewWorker(db, logger, os.Getenv("CLICKHOUSE_URL"), envOrDefault("CLICKHOUSE_USER", "analytics"), cfg.ClickHousePassword).Run(ctx)
 	go maintenance.NewWorker(db, logger, cleanupConfig, metrics).Run(ctx)
 
 	go func() {
