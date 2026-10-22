@@ -1,0 +1,57 @@
+name: Load test
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: k6 load profile
+        required: true
+        default: average
+        type: choice
+        options: [smoke, average, peak, stress, degraded]
+  schedule:
+    - cron: '30 2 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  k6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LOAD_PROFILE: ${{ inputs.profile || 'average' }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start isolated load stack
+        run: docker compose -p restaurant-delivery-load -f docker-compose.e2e.yml up -d --build --wait
+      - name: Stop restaurant for degraded profile
+        if: env.LOAD_PROFILE == 'degraded'
+        run: docker compose -p restaurant-delivery-load -f docker-compose.e2e.yml stop demo-restaurant
+      - name: Prepare result directory
+        run: mkdir -p load-results && chmod 777 load-results
+      - name: Run selected k6 profile
+        run: >-
+          docker run --rm
+          --network restaurant-delivery-load_default
+          -v "$PWD/tests/load:/scripts:ro"
+          -v "$PWD/load-results:/results"
+          grafana/k6:2.3.0
+          run --summary-export=/results/summary.json
+          -e BASE_URL=http://platform-api:8080
+          -e PROFILE="$LOAD_PROFILE"
+          /scripts/platform.js
+      - name: Upload load summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: k6-${{ env.LOAD_PROFILE }}-${{ github.sha }}
+          path: load-results/summary.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Print service logs
+        if: failure()
+        run: docker compose -p restaurant-delivery-load -f docker-compose.e2e.yml logs --no-color
+      - name: Stop isolated load stack
+        if: always()
+        run: docker compose -p restaurant-delivery-load -f docker-compose.e2e.yml down -v

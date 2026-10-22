@@ -48,7 +48,8 @@
 - Prometheus endpoint с RED, Go runtime, PostgreSQL pool и outbox-метриками;
 - готовый локальный профиль Prometheus, Grafana, Loki, Tempo, OpenTelemetry Collector и ClickHouse с техническим и бизнес-dashboard;
 - OpenAPI-контракты, C4, ER, sequence-диаграмма и CJM;
-- unit- и E2E-тесты, включая конкурентное списание последнего товара.
+- unit- и E2E-тесты, включая конкурентное списание последнего товара;
+- k6-профили smoke/average/peak/stress/degraded с SLO thresholds и отдельным workflow.
 
 ## Архитектура
 
@@ -193,6 +194,7 @@ Vite проксирует `/api` на `http://localhost:8080`. При недос
 - [контракт интеграционных событий](docs/integration-events.md);
 - [ADR о PostgreSQL outbox](docs/adr/0001-postgresql-outbox.md);
 - [runbook ротации и компрометации партнёрского ключа](docs/runbooks/partner-credential-compromise.md);
+- [runbook нагрузочного тестирования](docs/runbooks/load-testing.md);
 - [план развития проекта](docs/roadmap.md).
 
 API версии `0.11.0` включает регистрацию, вход, ротацию refresh token в `HttpOnly SameSite` cookie, серверный logout и отзыв token family при обнаружении повторного использования, профиль, CRUD сохранённых адресов, серверные метаданные каталога, двустороннее управление меню ресторана и realtime-очередь партнёра через SSE. Партнёрские credentials имеют scoped роли, expiry, overlap-ротацию, emergency revoke и append-only audit API. Изменения состояния заказа защищены его версией, клиент может отменить заказ до начала приготовления, а отклонение и отмена возвращают зарезервированные остатки. Web-клиент хранит только короткоживущий Bearer access token, защищает личные экраны и автоматически подставляет основной адрес при оформлении. Все пользовательские endpoints требуют действительный access token.

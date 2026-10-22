@@ -136,7 +136,7 @@
 - [ ] подключить расписание и внешнее object storage для ежедневных резервных копий PostgreSQL; consistent backup, age-шифрование, checksum и retention реализованы;
 - [ ] провести restore drill в staging и зафиксировать фактические RPO/RTO; автоматический encrypted backup/restore integrity drill уже блокирует CI, целевые RPO 24 часа и RTO 60 минут описаны в runbook;
 - [ ] добавить synthetic check полного пути quote → create → status в staging;
-- [ ] провести k6-тесты обычной, пиковой и деградированной нагрузки;
+- [ ] провести и зафиксировать k6 baseline в staging; профили smoke/average/peak/stress/degraded и CI smoke gate уже реализованы;
 - [ ] определить production-retention логов, traces и метрик; retention операционных и аналитических event-журналов уже автоматизирован;
 - [ ] подготовить инструкции по релизу и откату; runbooks аварии БД, роста outbox и компрометации ключа готовы.
 
