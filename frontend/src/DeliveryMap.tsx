@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import * as maplibregl from 'maplibre-gl'
 import { LngLatBounds } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import type { Order } from './types'
 
 const STYLE_URL = 'https://tiles.openfreemap.org/styles/positron'
+maplibregl.setWorkerUrl(workerUrl)
 const DEFAULT_RESTAURANT: [number, number] = [50.1267, 53.1959]
 const restaurantLocations: Record<string, [number, number]> = {
   '11111111-1111-1111-1111-111111111111': [50.1008, 53.1952],
