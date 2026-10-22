@@ -135,11 +135,24 @@ h2 { font-size: 2rem; letter-spacing: -.04em; }
 .status-track div.done { color: var(--ink); }.status-track div.done span { background: var(--coral); border-color: var(--coral); color: white; }.status-track div.done:not(:last-child)::after { background: var(--coral); }
 .tracking-layout { display: grid; grid-template-columns: 2.2fr 1fr; gap: 24px; }
 .map-card { height: 390px; position: relative; overflow: hidden; background: var(--peach); border-radius: 22px; }
+.delivery-map { position: absolute; inset: 0; }
+.map-card--interactive { border: 1px solid var(--line); background: #edf1f4; }
+.map-card--interactive .maplibregl-canvas { outline: none; }
+.map-card--interactive .maplibregl-ctrl-group { border: 1px solid var(--line); box-shadow: 3px 4px 0 rgba(22,16,22,.18); }
+.map-card--interactive .maplibregl-ctrl-attrib { font-size: 10px; }
+.delivery-marker { width: 28px; height: 28px; border: 4px solid white; border-radius: 50%; box-shadow: 0 3px 10px rgba(22,16,22,.35); }
+.delivery-marker--restaurant { background: #161016; }
+.delivery-marker--destination { background: var(--paper); border-color: var(--coral); }
+.delivery-marker--courier { width: 34px; height: 34px; background: var(--coral); border-color: white; }
+.map-demo-label { position: absolute; left: 13px; bottom: 29px; z-index: 2; padding: 6px 9px; border-radius: 7px; background: rgba(255,255,255,.92); color: var(--muted); font-size: .57rem; font-weight: 800; }
+.map-fallback { position: absolute; inset: 0; z-index: 4; display: grid; place-content: center; gap: 7px; text-align: center; background: var(--peach); }
+.map-fallback span { color: var(--muted); font-size: .7rem; }
+.map-loading { display: grid; place-items: center; color: var(--muted); font-size: .72rem; font-weight: 800; }
 .street-lines { position: absolute; inset: -20px; opacity: .8; background: repeating-linear-gradient(7deg, transparent 0 57px, white 59px 66px), repeating-linear-gradient(99deg, transparent 0 77px, white 79px 87px); }
 .map-card svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .map-card polyline { fill: none; stroke: var(--coral); stroke-width: 8; stroke-linecap: round; stroke-linejoin: round; }
 .map-start { fill: var(--paper); stroke: var(--coral); stroke-width: 6; }.map-courier { fill: var(--coral); }
-.map-label { position: absolute; right: 55px; top: 84px; background: white; border-radius: 8px; padding: 8px 12px; font-size: .68rem; font-weight: 800; }
+.map-label { position: absolute; z-index: 2; right: 55px; top: 84px; background: white; border-radius: 8px; padding: 8px 12px; font-size: .68rem; font-weight: 800; box-shadow: 0 4px 14px rgba(22,16,22,.16); }
 .courier-card { border: 1px solid var(--line); border-radius: 22px; background: white; padding: 30px 26px; }
 .courier-icon { float: right; width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; color: white; background: var(--coral); font-weight: 800; }
 .courier-card h2 { font-size: 1.25rem; margin-bottom: 8px; }.courier-card > div p { color: var(--muted); font-size: .75rem; }.courier-card hr { border: 0; border-top: 1px solid var(--line); margin: 28px 0; }.courier-card > strong { display: block; font-size: .85rem; margin-bottom: 30px; }.muted { color: var(--muted); font-size: .7rem; margin-bottom: 8px; }.minutes { display: block; color: var(--coral); font-size: 1.45rem; margin: 0 0 24px; }.courier-card .button { width: 100%; }

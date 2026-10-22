@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { cancelOrder, createAddress, createOrder, deleteAddress, fetchAddresses, fetchMenu, fetchOrder, fetchOrders, fetchPartnerMenu, fetchPartnerOrders, fetchRestaurants, quoteOrder, savePartnerMenu, streamOrder, streamPartnerOrders, updateAddress, updatePartnerOrderStatus } from './api'
 import { getSession, login, logout as endSession, register, subscribeToSession } from './auth'
 import PartnerMenuEditor from './PartnerMenuEditor'
@@ -7,6 +7,7 @@ import type { Address, AuthSession, Cart, Menu, Order, OrderQuote, PartnerMenu, 
 const money = (minor: number) => `${new Intl.NumberFormat('ru-RU').format(minor / 100)} ₽`
 const CART_KEY = 'looch-cart-v1'
 const PARTNER_KEY = 'looch-partner-key'
+const DeliveryMap = lazy(() => import('./DeliveryMap'))
 
 function routeFromPath(): { screen: Screen; id?: string } {
   const parts = window.location.pathname.split('/').filter(Boolean)
@@ -111,7 +112,7 @@ function Tracking({ order, streamError, retry }: { order: Order; streamError: st
     catch (reason) { setCancelError(reason instanceof Error ? reason.message : 'Не удалось отменить заказ') }
     finally { setCancelling(false) }
   }
-  return <main className="shell page tracking-page"><div className="tracking-heading"><div><p className="eyebrow coral">{statusLabel[order.status] ?? 'Заказ подтверждён'}</p><h1>Заказ № {shortId}</h1></div><span className="delivery-time">Доставим к 19:35</span></div>{streamError && <Notice retry={retry}>{streamError}</Notice>}{cancelError && <p className="form-error">{cancelError}</p>}<div className="status-track">{['Принят', 'Готовится', 'У курьера', 'Доставлен'].map((label, index) => <div className={index <= active ? 'done' : ''} key={label}><span>{index < active ? '✓' : ''}</span><b>{label}</b></div>)}</div><div className="tracking-layout"><div className="map-card"><div className="street-lines" /><svg viewBox="0 0 700 360" preserveAspectRatio="none" aria-label="Маршрут курьера"><polyline points="65,310 240,105 610,58" /><circle cx="65" cy="310" r="15" className="map-start" /><circle cx="610" cy="58" r="18" className="map-courier" /></svg><span className="map-label">Курьер Алексей</span></div><aside className="courier-card"><span className="courier-icon">А</span><div><h2>{order.status === 'delivered' ? 'Заказ доставлен' : `Курьер ${active >= 2 ? 'в пути' : 'скоро заберёт заказ'}`}</h2><p>Алексей&nbsp; · &nbsp;рейтинг 4,9</p></div><hr /><p className="muted">Адрес</p><strong>{order.deliveryAddress}</strong><p className="muted">Осталось примерно</p><b className="minutes">{order.status === 'delivered' ? 'Готово' : '12 минут'}</b>{canCancel && <button className="button button--outline" disabled={cancelling} onClick={() => void cancel()}>{cancelling ? 'Отменяем…' : 'Отменить заказ'}</button>}<button className="button button--outline">Связаться с курьером</button></aside></div></main>
+  return <main className="shell page tracking-page"><div className="tracking-heading"><div><p className="eyebrow coral">{statusLabel[order.status] ?? 'Заказ подтверждён'}</p><h1>Заказ № {shortId}</h1></div><span className="delivery-time">Доставим к 19:35</span></div>{streamError && <Notice retry={retry}>{streamError}</Notice>}{cancelError && <p className="form-error">{cancelError}</p>}<div className="status-track">{['Принят', 'Готовится', 'У курьера', 'Доставлен'].map((label, index) => <div className={index <= active ? 'done' : ''} key={label}><span>{index < active ? '✓' : ''}</span><b>{label}</b></div>)}</div><div className="tracking-layout"><Suspense fallback={<div className="map-card map-loading">Загружаем карту…</div>}><DeliveryMap order={order} /></Suspense><aside className="courier-card"><span className="courier-icon">А</span><div><h2>{order.status === 'delivered' ? 'Заказ доставлен' : `Курьер ${active >= 2 ? 'в пути' : 'скоро заберёт заказ'}`}</h2><p>Алексей&nbsp; · &nbsp;рейтинг 4,9</p></div><hr /><p className="muted">Адрес</p><strong>{order.deliveryAddress}</strong><p className="muted">Осталось примерно</p><b className="minutes">{order.status === 'delivered' ? 'Готово' : '12 минут'}</b>{canCancel && <button className="button button--outline" disabled={cancelling} onClick={() => void cancel()}>{cancelling ? 'Отменяем…' : 'Отменить заказ'}</button>}<button className="button button--outline">Связаться с курьером</button></aside></div></main>
 }
 
 function AuthPage({ complete }: { complete: (session: AuthSession) => void }) {
