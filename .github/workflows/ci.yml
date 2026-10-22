@@ -12,8 +12,8 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
@@ -22,8 +22,8 @@ jobs:
   backend-e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
@@ -62,13 +62,40 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: npm audit --audit-level=high
+      - name: Scan source, dependencies, configuration and secrets
+        run: >-
+          docker run --rm
+          -v "$PWD:/workspace"
+          aquasec/trivy:0.76.0
+          fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 /workspace
+      - name: Build release images
+        run: |
+          docker build --build-arg SERVICE=platform-api --tag restaurant-platform:${GITHUB_SHA} .
+          docker build --tag restaurant-web:${GITHUB_SHA} frontend
+      - name: Scan release images
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.0 image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 restaurant-platform:${GITHUB_SHA}
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.0 image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 restaurant-web:${GITHUB_SHA}
