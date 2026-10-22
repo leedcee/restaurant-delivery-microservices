@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import * as maplibregl from 'maplibre-gl'
 import { LngLatBounds } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -43,63 +45,118 @@ function marker(className: string, label: string) {
 
 export default function DeliveryMap({ order }: { order: Order }) {
   const container = useRef<HTMLDivElement>(null)
-  const map = useRef<maplibregl.Map | null>(null)
-  const courier = useRef<maplibregl.Marker | null>(null)
+  const updateCourier = useRef<((point: [number, number]) => void) | null>(null)
   const [failed, setFailed] = useState(false)
+  const [provider, setProvider] = useState<'vector' | 'raster'>('vector')
   const restaurant = restaurantLocations[order.restaurantId ?? ''] ?? DEFAULT_RESTAURANT
   const destination = deliveryLocation(order.deliveryAddress, restaurant)
   const courierPoint = pointBetween(restaurant, destination, courierProgress(order.status))
 
   useEffect(() => {
     if (!container.current) return
+    const element = container.current
+    let vectorMap: maplibregl.Map | null = null
+    let rasterMap: L.Map | null = null
+    let fallbackTimer: number | undefined
+    let disposed = false
     setFailed(false)
-    const instance = new maplibregl.Map({
-      container: container.current,
-      style: STYLE_URL,
-      center: restaurant,
-      zoom: 13,
-      attributionControl: { compact: true },
-      cooperativeGestures: true,
-    })
-    map.current = instance
-    instance.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
-    instance.on('error', () => setFailed(true))
-    instance.on('load', () => {
-      instance.addSource('delivery-route', {
-        type: 'geojson',
-        data: {
-          type: 'Feature',
-          properties: {},
-          geometry: { type: 'LineString', coordinates: [restaurant, destination] },
-        },
-      })
-      instance.addLayer({
-        id: 'delivery-route-line',
-        type: 'line',
-        source: 'delivery-route',
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#ef6248', 'line-width': 6, 'line-opacity': 0.88 },
-      })
-      new maplibregl.Marker({ element: marker('delivery-marker--restaurant', 'Ресторан') }).setLngLat(restaurant).addTo(instance)
-      new maplibregl.Marker({ element: marker('delivery-marker--destination', 'Адрес доставки') }).setLngLat(destination).addTo(instance)
-      courier.current = new maplibregl.Marker({ element: marker('delivery-marker--courier', 'Курьер') }).setLngLat(courierPoint).addTo(instance)
-      instance.fitBounds(new LngLatBounds(restaurant, destination), { padding: 70, maxZoom: 14 })
-    })
+
+    const startRasterMap = () => {
+      if (disposed || rasterMap) return
+      if (fallbackTimer) window.clearTimeout(fallbackTimer)
+      if (vectorMap) {
+        vectorMap.remove()
+        vectorMap = null
+      }
+      element.replaceChildren()
+      try {
+        rasterMap = L.map(element, { zoomControl: true, attributionControl: true, scrollWheelZoom: false })
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        }).addTo(rasterMap)
+        const icon = (className: string, label: string) => L.divIcon({
+          className: '',
+          html: `<span class="delivery-marker ${className}" role="img" aria-label="${label}" title="${label}"></span>`,
+          iconSize: className.endsWith('courier') ? [34, 34] : [28, 28],
+          iconAnchor: className.endsWith('courier') ? [17, 17] : [14, 14],
+        })
+        const from: L.LatLngExpression = [restaurant[1], restaurant[0]]
+        const to: L.LatLngExpression = [destination[1], destination[0]]
+        L.polyline([from, to], { color: '#ef6248', weight: 6, opacity: 0.88 }).addTo(rasterMap)
+        L.marker(from, { icon: icon('delivery-marker--restaurant', 'Ресторан') }).addTo(rasterMap)
+        L.marker(to, { icon: icon('delivery-marker--destination', 'Адрес доставки') }).addTo(rasterMap)
+        const courierMarker = L.marker([courierPoint[1], courierPoint[0]], { icon: icon('delivery-marker--courier', 'Курьер') }).addTo(rasterMap)
+        updateCourier.current = (point) => courierMarker.setLatLng([point[1], point[0]])
+        rasterMap.fitBounds(L.latLngBounds(from, to), { padding: [55, 55], maxZoom: 14 })
+        setProvider('raster')
+        setFailed(false)
+      } catch {
+        setFailed(true)
+      }
+    }
+
+    try {
+      if (!document.createElement('canvas').getContext('webgl2')) {
+        startRasterMap()
+      } else {
+        vectorMap = new maplibregl.Map({
+          container: element,
+          style: STYLE_URL,
+          center: restaurant,
+          zoom: 13,
+          attributionControl: { compact: true },
+          cooperativeGestures: true,
+        })
+        vectorMap.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+        vectorMap.on('webglcontextlost', startRasterMap)
+        vectorMap.on('load', () => {
+          if (!vectorMap || disposed) return
+          if (fallbackTimer) window.clearTimeout(fallbackTimer)
+          vectorMap.addSource('delivery-route', {
+            type: 'geojson',
+            data: {
+              type: 'Feature',
+              properties: {},
+              geometry: { type: 'LineString', coordinates: [restaurant, destination] },
+            },
+          })
+          vectorMap.addLayer({
+            id: 'delivery-route-line',
+            type: 'line',
+            source: 'delivery-route',
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: { 'line-color': '#ef6248', 'line-width': 6, 'line-opacity': 0.88 },
+          })
+          new maplibregl.Marker({ element: marker('delivery-marker--restaurant', 'Ресторан') }).setLngLat(restaurant).addTo(vectorMap)
+          new maplibregl.Marker({ element: marker('delivery-marker--destination', 'Адрес доставки') }).setLngLat(destination).addTo(vectorMap)
+          const courierMarker = new maplibregl.Marker({ element: marker('delivery-marker--courier', 'Курьер') }).setLngLat(courierPoint).addTo(vectorMap)
+          updateCourier.current = (point) => courierMarker.setLngLat(point)
+          vectorMap.fitBounds(new LngLatBounds(restaurant, destination), { padding: 70, maxZoom: 14 })
+          setProvider('vector')
+        })
+        fallbackTimer = window.setTimeout(startRasterMap, 5000)
+      }
+    } catch {
+      startRasterMap()
+    }
     return () => {
-      courier.current = null
-      map.current = null
-      instance.remove()
+      disposed = true
+      if (fallbackTimer) window.clearTimeout(fallbackTimer)
+      updateCourier.current = null
+      vectorMap?.remove()
+      rasterMap?.remove()
     }
   }, [order.id])
 
   useEffect(() => {
-    courier.current?.setLngLat(courierPoint)
+    updateCourier.current?.(courierPoint)
   }, [courierPoint[0], courierPoint[1]])
 
   return <div className="map-card map-card--interactive">
     <div ref={container} className="delivery-map" aria-label="Интерактивная карта доставки" />
     <span className="map-label">{order.status === 'delivered' ? 'Доставлено' : 'Курьер Алексей'}</span>
-    <span className="map-demo-label">Демо-маршрут · OpenFreeMap</span>
+    <span className="map-demo-label">Демо-маршрут · {provider === 'vector' ? 'OpenFreeMap' : 'OpenStreetMap'}</span>
     {failed && <div className="map-fallback"><b>Карта временно недоступна</b><span>Заказ продолжает обновляться.</span></div>}
   </div>
 }
