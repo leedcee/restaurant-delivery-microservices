@@ -1,4 +1,4 @@
-.PHONY: build test test-e2e lint fmt diagrams up down logs observability-up observability-down
+.PHONY: build test test-e2e backup-restore-drill lint fmt diagrams up down logs observability-up observability-down
 
 build:
 	go build ./...
@@ -19,6 +19,9 @@ test-e2e:
 			-path=/migrations -database='postgres://restaurant_test:restaurant_test@postgres:5432/restaurant_delivery_test?sslmode=disable' up; \
 		docker compose -p restaurant-delivery-e2e -f docker-compose.e2e.yml run --rm partner-fixtures; \
 		curl --fail http://127.0.0.1:18080/api/v1/restaurants
+
+backup-restore-drill:
+	docker compose -p restaurant-delivery-e2e -f docker-compose.e2e.yml run --rm --build backup-restore-drill
 
 lint:
 	golangci-lint run ./...

@@ -88,3 +88,16 @@ services:
     depends_on:
       platform-api:
         condition: service_healthy
+
+  backup-restore-drill:
+    build:
+      context: .
+      dockerfile: deploy/backup/Dockerfile
+    environment:
+      DATABASE_URL: postgres://restaurant_test:restaurant_test@postgres:5432/restaurant_delivery_test?sslmode=disable
+      RESTORE_DATABASE_URL: postgres://restaurant_test:restaurant_test@postgres:5432/restaurant_delivery_restore?sslmode=disable
+      RESTORE_DATABASE_NAME: restaurant_delivery_restore
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: [ops]

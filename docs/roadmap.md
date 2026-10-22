@@ -133,8 +133,8 @@
 - [ ] развернуть staging с TLS, DNS, reverse proxy/API gateway и закрытой БД;
 - [ ] выполнять миграции отдельным release job с forward-compatible схемами;
 - [ ] добавить rolling deployment, корректные readiness/liveness и graceful shutdown worker/SSE;
-- [ ] автоматизировать ежедневные резервные копии PostgreSQL и шифрование backup;
-- [ ] провести restore drill и зафиксировать RPO/RTO;
+- [ ] подключить расписание и внешнее object storage для ежедневных резервных копий PostgreSQL; consistent backup, age-шифрование, checksum и retention реализованы;
+- [ ] провести restore drill в staging и зафиксировать фактические RPO/RTO; автоматический encrypted backup/restore integrity drill уже блокирует CI, целевые RPO 24 часа и RTO 60 минут описаны в runbook;
 - [ ] добавить synthetic check полного пути quote → create → status в staging;
 - [ ] провести k6-тесты обычной, пиковой и деградированной нагрузки;
 - [ ] определить production-retention логов, traces и метрик; retention операционных и аналитических event-журналов уже автоматизирован;
