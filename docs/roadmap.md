@@ -129,7 +129,7 @@
 ### P0.5. Эксплуатационная готовность
 
 - [ ] завершить отдельную production-конфигурацию; local/test и изолированный staging manifest готовы;
-- [ ] собирать immutable OCI images с commit SHA, SBOM и подписью;
+- [x] собирать multi-arch immutable OCI images с commit SHA/version labels, BuildKit SBOM/provenance и keyless Cosign подписью при release tag;
 - [ ] фактически развернуть staging; manifest с автоматическим TLS ingress, Docker secrets и закрытыми PostgreSQL/ClickHouse/API уже готов и проходит `docker compose config`;
 - [x] выполнять миграции отдельным release job с forward-compatible схемами; populated rollback/reapply проверяется CI;
 - [ ] добавить rolling deployment, корректные readiness/liveness и graceful shutdown worker/SSE;

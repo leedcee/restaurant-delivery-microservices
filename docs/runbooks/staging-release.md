@@ -8,6 +8,8 @@
 - `PLATFORM_IMAGE`, `DEMO_IMAGE` и `WEB_IMAGE` заданы immutable digest, не `latest`;
 - перед релизом CI для того же commit SHA полностью зелёный.
 
+Tag `v*` запускает workflow `Release images`: platform, demo restaurant и web собираются для `linux/amd64` и `linux/arm64`, публикуются в GHCR с commit SHA/version labels, получают BuildKit SBOM/provenance и keyless Cosign signature через GitHub OIDC. В staging manifest переносятся digest из результата этого workflow, а не изменяемый tag.
+
 Каталог `STAGING_SECRETS_DIR` содержит `postgres_password`, `database_url`, `jwt_secret`, `clickhouse_password`, `demo_partner_key`. `database_url` использует hostname `postgres`, TLS-настройки выбранного staging PostgreSQL и тот же пароль, что `postgres_password`. JWT secret — не менее 32 случайных символов. Partner key — не менее 32 случайных байт в URL-safe представлении.
 
 ## Первый запуск
