@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"restaurant-delivery-system/internal/domain"
 
@@ -151,6 +153,109 @@ func TestPartnerFixtures(t *testing.T) {
 			t.Fatalf("foreign partner update returned %d, want 404: %s", status, body)
 		}
 	})
+}
+
+func TestPartnerCredentialLifecycleAndRBAC(t *testing.T) {
+	client := &http.Client{}
+	expiresAt := time.Now().Add(2 * time.Hour).UTC()
+	var created struct {
+		Credential struct {
+			ID   uuid.UUID `json:"id"`
+			Role string    `json:"role"`
+		} `json:"credential"`
+		Secret string `json:"secret"`
+	}
+	doJSON(t, client, http.MethodPost, baseURL+"/partner/v1/credentials", map[string]any{
+		"name": "E2E kitchen " + uuid.NewString(), "role": "kitchen", "expiresAt": expiresAt,
+	}, map[string]string{"X-API-Key": pastaAPIKey}, http.StatusCreated, &created)
+	if created.Credential.ID == uuid.Nil || created.Credential.Role != "kitchen" || len(created.Secret) < 40 {
+		t.Fatalf("invalid created credential response: %+v", created)
+	}
+
+	doJSON(t, client, http.MethodGet, baseURL+"/partner/v1/orders", nil,
+		map[string]string{"X-API-Key": created.Secret}, http.StatusOK, nil)
+	doJSON(t, client, http.MethodGet, baseURL+"/partner/v1/credentials", nil,
+		map[string]string{"X-API-Key": created.Secret}, http.StatusForbidden, nil)
+	doJSON(t, client, http.MethodPut, baseURL+"/partner/v1/menu", domain.PartnerMenu{},
+		map[string]string{"X-API-Key": created.Secret}, http.StatusForbidden, nil)
+
+	var credentials struct {
+		Items []struct {
+			ID         uuid.UUID  `json:"id"`
+			LastUsedAt *time.Time `json:"lastUsedAt"`
+		} `json:"items"`
+	}
+	status, body := requestJSON(t.Context(), client, http.MethodGet, baseURL+"/partner/v1/credentials", nil,
+		map[string]string{"X-API-Key": pastaAPIKey})
+	if status != http.StatusOK {
+		t.Fatalf("list partner credentials returned %d: %s", status, body)
+	}
+	if strings.Contains(body, created.Secret) || strings.Contains(body, "secretHash") {
+		t.Fatal("credential list exposed a secret or its hash")
+	}
+	if err := json.Unmarshal([]byte(body), &credentials); err != nil {
+		t.Fatalf("decode partner credentials: %v", err)
+	}
+	foundUsed := false
+	for _, credential := range credentials.Items {
+		if credential.ID == created.Credential.ID && credential.LastUsedAt != nil {
+			foundUsed = true
+		}
+	}
+	if !foundUsed {
+		t.Fatal("created credential was not listed with its last-used timestamp")
+	}
+
+	doJSON(t, client, http.MethodPost,
+		baseURL+"/partner/v1/credentials/"+created.Credential.ID.String()+"/revoke",
+		map[string]string{"reason": "E2E rotation completed"},
+		map[string]string{"X-API-Key": pastaAPIKey}, http.StatusNoContent, nil)
+	doJSON(t, client, http.MethodGet, baseURL+"/partner/v1/orders", nil,
+		map[string]string{"X-API-Key": created.Secret}, http.StatusUnauthorized, nil)
+	var audit struct {
+		Items []struct {
+			Action     string `json:"action"`
+			ResourceID string `json:"resourceId"`
+		} `json:"items"`
+	}
+	doJSON(t, client, http.MethodGet, baseURL+"/partner/v1/audit", nil,
+		map[string]string{"X-API-Key": pastaAPIKey}, http.StatusOK, &audit)
+	visibleLifecycleEvents := 0
+	for _, event := range audit.Items {
+		if event.ResourceID == created.Credential.ID.String() &&
+			(event.Action == "credential.created" || event.Action == "credential.revoked") {
+			visibleLifecycleEvents++
+		}
+	}
+	if visibleLifecycleEvents != 2 {
+		t.Fatalf("partner audit API returned %d credential lifecycle events, want 2", visibleLifecycleEvents)
+	}
+
+	db := openTestDB(t)
+	var auditCount int
+	if err := db.QueryRow(t.Context(), `SELECT count(*) FROM partner_audit_log
+		WHERE restaurant_id = $1 AND resource_id = $2
+		  AND action IN ('credential.created', 'credential.revoked')`,
+		pastaRestaurantID, created.Credential.ID.String()).Scan(&auditCount); err != nil {
+		t.Fatalf("query credential audit: %v", err)
+	}
+	if auditCount != 2 {
+		t.Fatalf("credential audit contains %d lifecycle events, want 2", auditCount)
+	}
+	if _, err := db.Exec(t.Context(), `UPDATE partner_audit_log SET action = 'tampered'
+		WHERE restaurant_id = $1 AND resource_id = $2`, pastaRestaurantID, created.Credential.ID.String()); err == nil {
+		t.Fatal("append-only audit log unexpectedly allowed an update")
+	}
+
+	expiredSecret := "expired-e2e-" + uuid.NewString()
+	if _, err := db.Exec(t.Context(), `INSERT INTO partner_credentials
+		(restaurant_id, name, secret_hash, role, created_at, expires_at)
+		VALUES ($1, 'Expired E2E key', encode(digest($2::text, 'sha256'), 'hex'), 'kitchen', now() - interval '2 hours', now() - interval '1 hour')`,
+		pastaRestaurantID, expiredSecret); err != nil {
+		t.Fatalf("insert expired credential: %v", err)
+	}
+	doJSON(t, client, http.MethodGet, baseURL+"/partner/v1/orders", nil,
+		map[string]string{"X-API-Key": expiredSecret}, http.StatusUnauthorized, nil)
 }
 
 func fetchRestaurantMenu(t *testing.T, client *http.Client, restaurantID string) domain.Menu {

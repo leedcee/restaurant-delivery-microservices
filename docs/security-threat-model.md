@@ -25,13 +25,13 @@
 | TM-03 | Запуск production с dev-секретом или HTTP cookie | критический | fail-closed validation для staging/production | secret manager и автоматическая ротация |
 | TM-04 | Подмена цены, состава или ресторана | критический | server-side quote, транзакционная повторная проверка меню и остатков | срок действия quote и подпись версии каталога |
 | TM-05 | Повтор запроса создаёт второй заказ | высокий | idempotency key и сохранённый response | документировать контракт каждого mutating endpoint |
-| TM-06 | Межтенантный доступ ресторана | критический | ключ привязан к restaurant ID, запросы ограничены tenant ID | employee RBAC, key ID/expiry/rotation и audit trail |
+| TM-06 | Межтенантный доступ ресторана или избыточные права ключа | критический | tenant-bound credential ID/hash, expiry/revoke/last-used, owner/manager/kitchen/operator permission matrix, append-only audit и E2E isolation | полноценный employee login и периодическая access review |
 | TM-07 | Потеря или повтор интеграционного события | высокий | transactional outbox, event ID, retry/backoff, dead letter, replay, receiver deduplication | inbox для внешних webhook |
 | TM-08 | Утечка секрета или PII через telemetry | высокий | структурированные логи, запрет PII в labels, security scan | автоматические redaction tests и полный data inventory |
 | TM-09 | Supply-chain уязвимость | высокий | npm/Trivy source, secret and image gates in CI | SBOM, digest pinning и подпись OCI images |
 | TM-10 | XSS/clickjacking/MIME confusion | высокий | CSP, frame denial, nosniff, referrer и permissions policies | DAST в staging |
 | TM-11 | SSE зависает или раскрывает чужие события | высокий | auth/tenant checks, Last-Event-ID, heartbeat, nginx buffering disabled | connection limits и SSE-specific metrics |
-| TM-12 | Потеря или шифрование PostgreSQL | критический | транзакции и readiness | encrypted backup, restore drill, подтверждённые RPO/RTO |
+| TM-12 | Потеря или шифрование PostgreSQL | критический | транзакции, readiness, age-encrypted consistent backup и CI restore drill | production scheduler/object storage и подтверждённые staging RPO/RTO |
 | TM-13 | Поддельный payment/delivery webhook | критический | провайдеры ещё не подключены | HMAC/mTLS verification, timestamp window, inbox и reconciliation до подключения денег |
 
 ## Обязательные security gates

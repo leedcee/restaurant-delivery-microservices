@@ -2,6 +2,8 @@
 package httpapi
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +24,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type server struct {
@@ -76,6 +79,10 @@ func New(db *pgxpool.Pool, logger *slog.Logger, jwtSecret string, cookieSecure b
 	router.Patch("/partner/v1/orders/{orderID}/status", server.updatePartnerOrderStatus)
 	router.Get("/partner/v1/outbox/dead-letters", server.listPartnerDeadLetters)
 	router.Post("/partner/v1/outbox/dead-letters/{eventID}/replay", server.replayPartnerDeadLetter)
+	router.Get("/partner/v1/credentials", server.listPartnerCredentials)
+	router.Post("/partner/v1/credentials", server.createPartnerCredential)
+	router.Post("/partner/v1/credentials/{credentialID}/revoke", server.revokePartnerCredential)
+	router.Get("/partner/v1/audit", server.listPartnerAudit)
 	return router
 }
 
@@ -529,12 +536,11 @@ func terminalStatus(status domain.OrderStatus) bool {
 }
 
 func (s *server) getPartnerMenu(w http.ResponseWriter, r *http.Request) {
-	restaurantID, err := s.queries.AuthenticatePartner(r.Context(), r.Header.Get("X-API-Key"))
-	if err != nil {
-		s.fail(w, r, err)
+	identity, ok := s.partnerIdentity(w, r, store.PartnerReadMenu)
+	if !ok {
 		return
 	}
-	menu, err := s.queries.GetPartnerMenu(r.Context(), restaurantID)
+	menu, err := s.queries.GetPartnerMenu(r.Context(), identity.RestaurantID)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -543,9 +549,8 @@ func (s *server) getPartnerMenu(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) replacePartnerMenu(w http.ResponseWriter, r *http.Request) {
-	restaurantID, err := s.queries.AuthenticatePartner(r.Context(), r.Header.Get("X-API-Key"))
-	if err != nil {
-		s.fail(w, r, err)
+	identity, ok := s.partnerIdentity(w, r, store.PartnerUpdateMenu)
+	if !ok {
 		return
 	}
 	var menu domain.PartnerMenu
@@ -553,7 +558,11 @@ func (s *server) replacePartnerMenu(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if err := s.queries.ReplaceMenu(r.Context(), restaurantID, menu); err != nil {
+	if err := s.queries.ReplaceMenu(r.Context(), identity.RestaurantID, menu); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if err := s.queries.RecordPartnerAudit(r.Context(), s.partnerAudit(r, identity, "menu.replaced", "menu", identity.RestaurantID.String(), "", map[string]any{"categoryCount": len(menu.Categories)})); err != nil {
 		s.fail(w, r, err)
 		return
 	}
@@ -561,11 +570,12 @@ func (s *server) replacePartnerMenu(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) streamPartnerOrders(w http.ResponseWriter, r *http.Request) {
-	restaurantID, err := s.queries.AuthenticatePartner(r.Context(), r.Header.Get("X-API-Key"))
-	if err != nil {
-		s.fail(w, r, err)
+	identity, ok := s.partnerIdentity(w, r, store.PartnerReadOrders)
+	if !ok {
 		return
 	}
+	restaurantID := identity.RestaurantID
+	var err error
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		s.fail(w, r, errors.New("streaming is unsupported"))
@@ -597,6 +607,10 @@ func (s *server) streamPartnerOrders(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case <-heartbeat.C:
+			currentIdentity, authErr := s.queries.AuthenticatePartner(r.Context(), r.Header.Get("X-API-Key"))
+			if authErr != nil || currentIdentity.RestaurantID != restaurantID || !currentIdentity.Can(store.PartnerReadOrders) {
+				return
+			}
 			if _, err := io.WriteString(w, ": keep-alive\n\n"); err != nil {
 				return
 			}
@@ -625,11 +639,11 @@ func (s *server) sendPartnerOrdersEvent(r *http.Request, w io.Writer, flusher ht
 	return nil
 }
 func (s *server) updatePartnerOrderStatus(w http.ResponseWriter, r *http.Request) {
-	restaurantID, err := s.queries.AuthenticatePartner(r.Context(), r.Header.Get("X-API-Key"))
-	if err != nil {
-		s.fail(w, r, err)
+	identity, ok := s.partnerIdentity(w, r, store.PartnerUpdateOrder)
+	if !ok {
 		return
 	}
+	restaurantID := identity.RestaurantID
 	orderID, err := uuid.Parse(chi.URLParam(r, "orderID"))
 	if err != nil {
 		s.fail(w, r, fmt.Errorf("%w: invalid order id", domain.ErrValidation))
@@ -650,17 +664,20 @@ func (s *server) updatePartnerOrderStatus(w http.ResponseWriter, r *http.Request
 		s.fail(w, r, err)
 		return
 	}
+	if err := s.queries.RecordPartnerAudit(r.Context(), s.partnerAudit(r, identity, "order.status_changed", "order", orderID.String(), input.Reason, map[string]any{"status": input.Status, "reasonCode": input.ReasonCode, "version": order.Version})); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	s.partnerOrderEvents.publish(restaurantID)
 	writeJSON(w, http.StatusOK, order)
 }
 
 func (s *server) listPartnerOrders(w http.ResponseWriter, r *http.Request) {
-	restaurantID, err := s.queries.AuthenticatePartner(r.Context(), r.Header.Get("X-API-Key"))
-	if err != nil {
-		s.fail(w, r, err)
+	identity, ok := s.partnerIdentity(w, r, store.PartnerReadOrders)
+	if !ok {
 		return
 	}
-	items, err := s.orders.ListForRestaurant(r.Context(), restaurantID)
+	items, err := s.orders.ListForRestaurant(r.Context(), identity.RestaurantID)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -669,12 +686,11 @@ func (s *server) listPartnerOrders(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) listPartnerDeadLetters(w http.ResponseWriter, r *http.Request) {
-	restaurantID, err := s.queries.AuthenticatePartner(r.Context(), r.Header.Get("X-API-Key"))
-	if err != nil {
-		s.fail(w, r, err)
+	identity, ok := s.partnerIdentity(w, r, store.PartnerManageFailures)
+	if !ok {
 		return
 	}
-	items, err := s.queries.ListPartnerDeadLetters(r.Context(), restaurantID)
+	items, err := s.queries.ListPartnerDeadLetters(r.Context(), identity.RestaurantID)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -683,9 +699,8 @@ func (s *server) listPartnerDeadLetters(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *server) replayPartnerDeadLetter(w http.ResponseWriter, r *http.Request) {
-	restaurantID, err := s.queries.AuthenticatePartner(r.Context(), r.Header.Get("X-API-Key"))
-	if err != nil {
-		s.fail(w, r, err)
+	identity, ok := s.partnerIdentity(w, r, store.PartnerManageFailures)
+	if !ok {
 		return
 	}
 	eventID, err := uuid.Parse(chi.URLParam(r, "eventID"))
@@ -693,11 +708,134 @@ func (s *server) replayPartnerDeadLetter(w http.ResponseWriter, r *http.Request)
 		s.fail(w, r, fmt.Errorf("%w: invalid event id", domain.ErrValidation))
 		return
 	}
-	if err := s.queries.ReplayPartnerDeadLetter(r.Context(), restaurantID, eventID); err != nil {
+	auditReason := strings.TrimSpace(r.Header.Get("X-Audit-Reason"))
+	if len(auditReason) > 500 {
+		s.fail(w, r, fmt.Errorf("%w: audit reason must not exceed 500 characters", domain.ErrValidation))
+		return
+	}
+	if err := s.queries.ReplayPartnerDeadLetter(r.Context(), identity.RestaurantID, eventID); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if err := s.queries.RecordPartnerAudit(r.Context(), s.partnerAudit(r, identity, "integration_event.replayed", "outbox_event", eventID.String(), auditReason, nil)); err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) listPartnerCredentials(w http.ResponseWriter, r *http.Request) {
+	identity, ok := s.partnerIdentity(w, r, store.PartnerManageCredential)
+	if !ok {
+		return
+	}
+	items, err := s.queries.ListPartnerCredentials(r.Context(), identity.RestaurantID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *server) createPartnerCredential(w http.ResponseWriter, r *http.Request) {
+	identity, ok := s.partnerIdentity(w, r, store.PartnerManageCredential)
+	if !ok {
+		return
+	}
+	var input struct {
+		Name      string            `json:"name"`
+		Role      store.PartnerRole `json:"role"`
+		ExpiresAt *time.Time        `json:"expiresAt"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	secret, err := newPartnerSecret()
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	credential, err := s.queries.CreatePartnerCredential(r.Context(), identity, input.Name, secret, input.Role, input.ExpiresAt, s.partnerAudit(r, identity, "", "", "", "", nil))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"credential": credential, "secret": secret})
+}
+
+func (s *server) revokePartnerCredential(w http.ResponseWriter, r *http.Request) {
+	identity, ok := s.partnerIdentity(w, r, store.PartnerManageCredential)
+	if !ok {
+		return
+	}
+	credentialID, err := uuid.Parse(chi.URLParam(r, "credentialID"))
+	if err != nil {
+		s.fail(w, r, fmt.Errorf("%w: invalid credential id", domain.ErrValidation))
+		return
+	}
+	var input struct {
+		Reason string `json:"reason"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	input.Reason = strings.TrimSpace(input.Reason)
+	if input.Reason == "" || len(input.Reason) > 500 {
+		s.fail(w, r, fmt.Errorf("%w: revocation reason is required and must not exceed 500 characters", domain.ErrValidation))
+		return
+	}
+	if err := s.queries.RevokePartnerCredential(r.Context(), identity, credentialID, s.partnerAudit(r, identity, "", "", "", input.Reason, nil)); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) listPartnerAudit(w http.ResponseWriter, r *http.Request) {
+	identity, ok := s.partnerIdentity(w, r, store.PartnerReadAudit)
+	if !ok {
+		return
+	}
+	items, err := s.queries.ListPartnerAudit(r.Context(), identity.RestaurantID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *server) partnerIdentity(w http.ResponseWriter, r *http.Request, permission store.PartnerPermission) (store.PartnerIdentity, bool) {
+	identity, err := s.queries.AuthenticatePartner(r.Context(), r.Header.Get("X-API-Key"))
+	if err != nil {
+		s.fail(w, r, err)
+		return store.PartnerIdentity{}, false
+	}
+	if !identity.Can(permission) {
+		s.fail(w, r, fmt.Errorf("%w: role %s cannot perform %s", domain.ErrForbidden, identity.Role, permission))
+		return store.PartnerIdentity{}, false
+	}
+	return identity, true
+}
+
+func (s *server) partnerAudit(r *http.Request, identity store.PartnerIdentity, action, resourceType, resourceID, reason string, metadata map[string]any) store.PartnerAuditEntry {
+	traceID := ""
+	if spanContext := trace.SpanContextFromContext(r.Context()); spanContext.IsValid() {
+		traceID = spanContext.TraceID().String()
+	}
+	return store.PartnerAuditEntry{
+		Identity: identity, Action: action, ResourceType: resourceType, ResourceID: resourceID,
+		RequestID: middleware.GetReqID(r.Context()), TraceID: traceID, Reason: reason, Metadata: metadata,
+	}
+}
+
+func newPartnerSecret() (string, error) {
+	random := make([]byte, 32)
+	if _, err := rand.Read(random); err != nil {
+		return "", fmt.Errorf("generate partner credential: %w", err)
+	}
+	return "rdp_" + base64.RawURLEncoding.EncodeToString(random), nil
 }
 
 func (s *server) userID(r *http.Request) (uuid.UUID, error) {
@@ -729,6 +867,8 @@ func (s *server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		status, title, typeName = http.StatusUnprocessableEntity, "Validation failed", "/problems/validation"
 	case errors.Is(err, domain.ErrUnauthorized):
 		status, title, typeName = http.StatusUnauthorized, "Unauthorized", "/problems/unauthorized"
+	case errors.Is(err, domain.ErrForbidden):
+		status, title, typeName = http.StatusForbidden, "Forbidden", "/problems/forbidden"
 	case errors.Is(err, domain.ErrNotFound):
 		status, title, typeName = http.StatusNotFound, "Not found", "/problems/not-found"
 	case errors.Is(err, domain.ErrConflict):

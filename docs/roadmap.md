@@ -62,9 +62,9 @@
 - [x] добавить rate limiting для регистрации, входа, refresh, quote и создания заказа;
 - [x] ограничить CORS явным списком origins по окружениям;
 - [x] добавить security headers, лимиты тела запроса и HTTP timeouts с учётом долгоживущего SSE; nginx настроен без buffering/cache и с timeout больше heartbeat;
-- [ ] заменить общий API key ресторана на аккаунты сотрудников с ролями `owner`, `manager`, `kitchen`, `operator`;
-- [ ] хранить интеграционные ключи с идентификатором, сроком действия, ротацией и аудитом использования;
-- [ ] добавить журнал действий сотрудников и оператора;
+- [ ] заменить ключи доступа на полноценные аккаунты сотрудников; ролевые credentials `owner`, `manager`, `kitchen`, `operator` и permission matrix уже внедрены;
+- [x] хранить партнёрские ключи с идентификатором, сроком действия, overlap-ротацией, немедленным отзывом и аудитом использования;
+- [x] добавить append-only журнал чувствительных действий партнёра с actor/action/resource/reason/request/trace/timestamp и просмотром для owner/operator;
 - [ ] подключить secret manager в staging/production; fail-closed validation уже исключает dev JWT secret, insecure cookie и HTTP origins во внешнем окружении;
 - [x] добавить dependency, image и secret scanning в CI;
 - [x] составить threat model для auth, заказов, webhook и партнёрского API.
@@ -138,7 +138,7 @@
 - [ ] добавить synthetic check полного пути quote → create → status в staging;
 - [ ] провести k6-тесты обычной, пиковой и деградированной нагрузки;
 - [ ] определить production-retention логов, traces и метрик; retention операционных и аналитических event-журналов уже автоматизирован;
-- [ ] подготовить инструкции по релизу, откату, аварии БД, росту outbox и компрометации ключа.
+- [ ] подготовить инструкции по релизу и откату; runbooks аварии БД, роста outbox и компрометации ключа готовы.
 
 Готово, когда staging поднимается автоматически из пустого окружения, релиз откатывается, а БД восстанавливается в пределах заявленных RPO/RTO.
 

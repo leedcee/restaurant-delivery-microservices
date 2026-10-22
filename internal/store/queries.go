@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -149,21 +147,6 @@ func (q *Queries) GetPartnerMenu(ctx context.Context, restaurantID uuid.UUID) (d
 		return domain.PartnerMenu{}, fmt.Errorf("iterate partner menu: %w", err)
 	}
 	return menu, nil
-}
-
-func (q *Queries) AuthenticatePartner(ctx context.Context, apiKey string) (uuid.UUID, error) {
-	hash := sha256.Sum256([]byte(apiKey))
-	var restaurantID uuid.UUID
-	err := q.db.QueryRow(ctx, `
-		SELECT restaurant_id FROM restaurant_integrations WHERE api_key_hash = $1`,
-		hex.EncodeToString(hash[:])).Scan(&restaurantID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, domain.ErrUnauthorized
-	}
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("authenticate partner: %w", err)
-	}
-	return restaurantID, nil
 }
 
 func (q *Queries) ListPartnerDeadLetters(ctx context.Context, restaurantID uuid.UUID) ([]domain.OutboxFailure, error) {

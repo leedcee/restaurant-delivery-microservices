@@ -12,7 +12,7 @@ age-keygen --output "${work_dir}/identity.txt" >/dev/null
 export BACKUP_AGE_RECIPIENT="$(age-keygen -y "${work_dir}/identity.txt")"
 export BACKUP_RETENTION_DAYS=1
 
-source_counts="$(psql "$DATABASE_URL" -At -v ON_ERROR_STOP=1 -c "SELECT (SELECT count(*) FROM restaurants) || ':' || (SELECT count(*) FROM products) || ':' || (SELECT count(*) FROM orders) || ':' || (SELECT count(*) FROM order_status_history);")"
+source_counts="$(psql "$DATABASE_URL" -At -v ON_ERROR_STOP=1 -c "SELECT (SELECT count(*) FROM restaurants) || ':' || (SELECT count(*) FROM products) || ':' || (SELECT count(*) FROM orders) || ':' || (SELECT count(*) FROM order_status_history) || ':' || (SELECT count(*) FROM partner_credentials) || ':' || (SELECT count(*) FROM partner_audit_log);")"
 backup_path="$(backup-postgres.sh "${work_dir}/backups")"
 
 dropdb --if-exists --maintenance-db="$DATABASE_URL" "$RESTORE_DATABASE_NAME"
@@ -22,7 +22,7 @@ export RESTORE_AGE_IDENTITY_FILE="${work_dir}/identity.txt"
 export ALLOW_DATABASE_RESTORE=true
 restore-postgres.sh "$backup_path"
 
-restored_counts="$(psql "$RESTORE_DATABASE_URL" -At -v ON_ERROR_STOP=1 -c "SELECT (SELECT count(*) FROM restaurants) || ':' || (SELECT count(*) FROM products) || ':' || (SELECT count(*) FROM orders) || ':' || (SELECT count(*) FROM order_status_history);")"
+restored_counts="$(psql "$RESTORE_DATABASE_URL" -At -v ON_ERROR_STOP=1 -c "SELECT (SELECT count(*) FROM restaurants) || ':' || (SELECT count(*) FROM products) || ':' || (SELECT count(*) FROM orders) || ':' || (SELECT count(*) FROM order_status_history) || ':' || (SELECT count(*) FROM partner_credentials) || ':' || (SELECT count(*) FROM partner_audit_log);")"
 if [[ "$source_counts" != "$restored_counts" ]]; then
   echo "Restore drill failed: source counts $source_counts, restored counts $restored_counts" >&2
   exit 1

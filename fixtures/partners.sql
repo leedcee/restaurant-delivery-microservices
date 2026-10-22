@@ -22,6 +22,17 @@ ON CONFLICT (restaurant_id) DO UPDATE SET
     api_key_hash = EXCLUDED.api_key_hash,
     updated_at = now();
 
+INSERT INTO partner_credentials (restaurant_id, name, secret_hash, role)
+VALUES
+    ('22222222-2222-2222-2222-222222222222', 'Pasta Lab owner', encode(digest('pasta-secret', 'sha256'), 'hex'), 'owner'),
+    ('33333333-3333-3333-3333-333333333333', 'Rice and Fish owner', encode(digest('sushi-secret', 'sha256'), 'hex'), 'owner')
+ON CONFLICT (secret_hash) DO UPDATE SET
+    restaurant_id = EXCLUDED.restaurant_id,
+    name = EXCLUDED.name,
+    role = EXCLUDED.role,
+    expires_at = NULL,
+    revoked_at = NULL;
+
 INSERT INTO menu_categories (id, restaurant_id, external_id, name, position)
 VALUES
     ('22222222-2222-4222-8222-000000000001', '22222222-2222-2222-2222-222222222222', 'pasta', 'Паста', 1),

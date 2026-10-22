@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Restaurant Delivery Platform API
-  version: 0.8.0
+  version: 0.11.0
   description: API for customers and partner restaurants in the delivery platform.
 servers:
   - url: http://localhost:8080
@@ -449,6 +449,8 @@ paths:
           description: Menu accepted
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '422':
           $ref: '#/components/responses/ValidationError'
   /partner/v1/orders:
@@ -473,6 +475,8 @@ paths:
                       $ref: '#/components/schemas/Order'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /partner/v1/orders/events:
     get:
       summary: Stream the authenticated restaurant order queue with Server-Sent Events
@@ -498,6 +502,8 @@ paths:
                 type: string
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /partner/v1/orders/{orderId}/status:
     patch:
       summary: Update a restaurant order status
@@ -540,6 +546,8 @@ paths:
                 $ref: '#/components/schemas/Order'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
   /partner/v1/outbox/dead-letters:
@@ -562,6 +570,10 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/OutboxFailure'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /partner/v1/outbox/dead-letters/{eventId}/replay:
     post:
       summary: Retry a dead-letter event owned by the authenticated restaurant
@@ -576,11 +588,156 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: X-Audit-Reason
+          in: header
+          required: false
+          description: Operational reason stored in the append-only partner audit log
+          schema:
+            type: string
+            maxLength: 500
       responses:
         '204':
           description: Event returned to the delivery queue
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /partner/v1/credentials:
+    get:
+      summary: List access credentials for the authenticated restaurant
+      description: Requires the `owner` role. Secret values and hashes are never returned.
+      tags: [Partner]
+      security:
+        - partnerApiKey: []
+      operationId: listPartnerCredentials
+      responses:
+        '200':
+          description: Credential metadata, including expiry, revocation and last use
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PartnerCredential'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      summary: Create a partner access credential
+      description: Requires the `owner` role. The generated secret is returned exactly once; overlap allows zero-downtime rotation.
+      tags: [Partner]
+      security:
+        - partnerApiKey: []
+      operationId: createPartnerCredential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, role]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                role:
+                  $ref: '#/components/schemas/PartnerRole'
+                expiresAt:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: Credential metadata and its one-time secret
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [credential, secret]
+                properties:
+                  credential:
+                    $ref: '#/components/schemas/PartnerCredential'
+                  secret:
+                    type: string
+                    description: One-time plaintext credential; store it in a secret manager.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /partner/v1/credentials/{credentialId}/revoke:
+    post:
+      summary: Revoke a partner access credential
+      description: Requires the `owner` role. The current credential cannot revoke itself and at least one active owner credential must remain.
+      tags: [Partner]
+      security:
+        - partnerApiKey: []
+      operationId: revokePartnerCredential
+      parameters:
+        - name: credentialId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        '204':
+          description: Credential revoked immediately
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /partner/v1/audit:
+    get:
+      summary: List the authenticated restaurant audit trail
+      description: Returns up to 200 newest append-only records. Requires the `owner` or `operator` role.
+      tags: [Partner]
+      security:
+        - partnerApiKey: []
+      operationId: listPartnerAudit
+      responses:
+        '200':
+          description: Newest audit records first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PartnerAuditRecord'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 components:
   securitySchemes:
     bearerAuth:
@@ -591,6 +748,7 @@ components:
       type: apiKey
       in: header
       name: X-API-Key
+      description: Scoped restaurant credential with an owner, manager, kitchen or operator role. Keys may expire or be revoked immediately.
   parameters:
     RestaurantId:
       name: restaurantId
@@ -609,7 +767,13 @@ components:
         maxLength: 128
   responses:
     Unauthorized:
-      description: Invalid partner API key
+      description: Missing or invalid authentication credential
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: Authenticated role does not permit this action
       content:
         application/problem+json:
           schema:
@@ -947,6 +1111,64 @@ components:
                       maximum: 1000000
                     available:
                       type: boolean
+    PartnerRole:
+      type: string
+      enum: [owner, manager, kitchen, operator]
+    PartnerCredential:
+      type: object
+      required: [id, name, role, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        role:
+          $ref: '#/components/schemas/PartnerRole'
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: string
+          format: date-time
+    PartnerAuditRecord:
+      type: object
+      required: [id, action, resourceType, metadata, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        credentialId:
+          type: string
+          format: uuid
+        credentialName:
+          type: string
+        role:
+          $ref: '#/components/schemas/PartnerRole'
+        action:
+          type: string
+        resourceType:
+          type: string
+        resourceId:
+          type: string
+        requestId:
+          type: string
+        traceId:
+          type: string
+        reason:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
     Problem:
       type: object
       required: [type, title, status]

@@ -13,6 +13,7 @@ var (
 	ErrConflict     = errors.New("resource state conflict")
 	ErrValidation   = errors.New("validation failed")
 	ErrUnauthorized = errors.New("unauthorized")
+	ErrForbidden    = errors.New("forbidden")
 )
 
 type Restaurant struct {
