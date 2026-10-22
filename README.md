@@ -197,6 +197,7 @@ Vite проксирует `/api` на `http://localhost:8080`. При недос
 - [ADR о PostgreSQL outbox](docs/adr/0001-postgresql-outbox.md);
 - [runbook ротации и компрометации партнёрского ключа](docs/runbooks/partner-credential-compromise.md);
 - [runbook нагрузочного тестирования](docs/runbooks/load-testing.md);
+- [первый performance baseline](docs/performance-baseline-2026-10-22.md);
 - [runbook staging release и rollback](docs/runbooks/staging-release.md);
 - [план развития проекта](docs/roadmap.md).
 

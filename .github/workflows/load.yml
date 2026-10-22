@@ -37,9 +37,10 @@ jobs:
           -v "$PWD/tests/load:/scripts:ro"
           -v "$PWD/load-results:/results"
           grafana/k6:2.3.0
-          run --summary-export=/results/summary.json
+          run
           -e BASE_URL=http://platform-api:8080
           -e PROFILE="$LOAD_PROFILE"
+          -e SUMMARY_PATH=/results/summary.json
           /scripts/platform.js
       - name: Upload load summary
         if: always()

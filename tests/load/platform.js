@@ -139,6 +139,39 @@ export function smokeFlow(data) {
   sleep(0.2)
 }
 
+export function handleSummary(data) {
+  const metricNames = [
+    'http_req_failed', 'business_failures', 'http_req_duration',
+    'order_quote_duration', 'order_create_duration', 'http_reqs',
+    'iterations', 'dropped_iterations', 'checks',
+  ]
+  const metrics = {}
+  for (const name of metricNames) {
+    if (data.metrics[name]) {
+      metrics[name] = {
+        type: data.metrics[name].type,
+        contains: data.metrics[name].contains,
+        values: data.metrics[name].values,
+        thresholds: data.metrics[name].thresholds,
+      }
+    }
+  }
+  const sanitized = { profile, generatedAt: new Date().toISOString(), metrics }
+  const lines = [
+    `profile=${profile}`,
+    `http_failed_rate=${value(metrics, 'http_req_failed', 'rate')}`,
+    `business_failed_rate=${value(metrics, 'business_failures', 'rate')}`,
+    `quote_p95_ms=${value(metrics, 'order_quote_duration', 'p(95)')}`,
+    `create_p95_ms=${value(metrics, 'order_create_duration', 'p(95)')}`,
+    `requests=${value(metrics, 'http_reqs', 'count')}`,
+  ]
+  const output = { stdout: `${lines.join('\n')}\n` }
+  if (__ENV.SUMMARY_PATH) {
+    output[__ENV.SUMMARY_PATH] = JSON.stringify(sanitized, null, 2)
+  }
+  return output
+}
+
 function draft(data) {
   return { restaurantId: data.restaurantID, deliveryAddress: 'Самара, нагрузочный тест', items: [{ productId: data.productID, quantity: 1 }] }
 }
@@ -151,4 +184,8 @@ function requireStatus(response, status, action) {
   if (response.status !== status) {
     fail(`${action}: got ${response.status}: ${response.body}`)
   }
+}
+
+function value(metrics, metric, field) {
+  return metrics[metric] && metrics[metric].values[field] !== undefined ? metrics[metric].values[field] : 'n/a'
 }
